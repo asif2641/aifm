@@ -1,0 +1,69 @@
+/**
+ * @file tokens.css
+ * @description Design Tokens for Editorial Flat Luxury aesthetic.
+ * Strictly adheres to 0 box-shadows, 0 text-shadows, 0 gradients, solid fills, and 1px borders.
+ */
+
+:root {
+  /* Brand & Core Palette */
+  --canvas: #FAF8F5;
+  --card: #FFFFFF;
+  --panel: #F3EFEA;
+  --panel-active: #EBE5DD;
+
+  --primary: #2F5D50;
+  --primary-hover: #23473C;
+  --primary-active: #1B362E;
+  --primary-text: #FFFFFF;
+
+  --secondary: #D97762;
+  --secondary-hover: #C5634E;
+  --secondary-text: #FFFFFF;
+
+  --text: #1E201E;
+  --muted: #686D68;
+  --border: #E4DFD7;
+  --border-strong: #CEC7BC;
+
+  /* Status Pills (Solid fill + 1px border of matching hue) */
+  --success-bg: #E6F2EC;
+  --success-border: #A3D4BD;
+  --success-text: #2E7D5B;
+
+  /* Warning text darkened to #96540A to guarantee WCAG AA 4.5:1 on #FDF3E3 */
+  --warning-bg: #FDF3E3;
+  --warning-border: #F7D4A6;
+  --warning-text: #96540A;
+
+  --error-bg: #FCEAEA;
+  --error-border: #F8B4B4;
+  --error-text: #C93B3B;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-urdu: 'Noto Nastaliq Urdu', 'Urdu Typesetting', Tahoma, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Spacing Scale */
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+
+  /* Layout Measurements */
+  --sidebar-width: 260px;
+  --header-height: 60px;
+  --bottom-nav-height: 64px;
+  --min-tap-target: 44px;
+
+  /* iOS Safe Areas */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}

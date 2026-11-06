@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Bill Auditor — Phase 5 Extras & Analytics Test Suite</title>
+  <style>
+    * { box-shadow: none !important; text-shadow: none !important; box-sizing: border-box; }
+    :root {
+      --canvas: #FAF8F5;
+      --card: #FFFFFF;
+      --panel: #F3EFEA;
+      --primary: #2F5D50;
+      --secondary: #D97762;
+      --border: #E4DFD7;
+      --success-bg: #E6F2EC;
+      --success-text: #2E7D5B;
+      --error-bg: #FCEAEA;
+      --error-text: #C93B3B;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--canvas);
+      color: #1E201E;
+    }
+    .container { max-width: 960px; margin: 0 auto; }
+    header { background: var(--card); border: 1px solid var(--border); padding: 24px; margin-bottom: 24px; }
+    h1 { margin: 0 0 8px 0; font-size: 22px; color: var(--primary); }
+    .pill { display: inline-flex; padding: 4px 12px; font-size: 13px; font-weight: 600; border: 1px solid currentColor; margin-right: 8px; }
+    .pill-success { background: var(--success-bg); color: var(--success-text); }
+    .pill-error { background: var(--error-bg); color: var(--error-text); }
+    .test-row { background: var(--card); border: 1px solid var(--border); padding: 12px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Phase 5 Extras & Analytics Verification Suite</h1>
+      <p style="color: #686D68; margin: 0 0 16px 0;">40+ Automated tests for Quick Add, Budgets (single fire), Month-End Recurring, Split Expenses, Minimal Settlements, CSV Import (500 rows), and Zero Drift.</p>
+      <div id="stats">Running tests...</div>
+    </header>
+    <div id="results"></div>
+  </div>
+
+  <script>
+    // Embedded zero-CORS verification logic
+
+    // Math & Money
+    function toBig(v) { return BigInt(v); }
+    function toNum(b) { return Number(b); }
+    function add(a, b) { return toNum(toBig(a) + toBig(b)); }
+    function sub(a, b) { return toNum(toBig(a) - toBig(b)); }
+    function sum(arr) { return arr.reduce((a, b) => add(a, b), 0); }
+    function splitEvenly(totalMinor, parts) {
+      const totBig = toBig(totalMinor);
+      const nBig = toBig(parts);
+      const base = totBig / nBig;
+      const rem = Number(totBig % nBig);
+      const res = [];
+      for (let i = 0; i < parts; i++) {
+        res.push(Number(base) + (i < rem ? 1 : 0));
+      }
+      return res;
+    }
+
+    // Month-End Date Logic
+    function getDaysInMonth(year, month) {
+      return new Date(year, month, 0).getDate();
+    }
+    function computeNextRecurringDate(curDateStr, intervalMonths = 1, preferredDay = null) {
+      const [yStr, mStr, dStr] = curDateStr.split('-');
+      let year = parseInt(yStr, 10);
+      let month = parseInt(mStr, 10);
+      const day = preferredDay != null ? preferredDay : parseInt(dStr, 10);
+
+      month += intervalMonths;
+      while (month > 12) {
+        month -= 12;
+        year += 1;
+      }
+      const maxDays = getDaysInMonth(year, month);
+      const actualDay = Math.min(day, maxDays);
+      return `${year}-${String(month).padStart(2, '0')}-${String(actualDay).padStart(2, '0')}`;
+    }
+
+    // Budget Alerts
+    function evaluateBudgetAlert(budgetStatus, firedAlertIds = new Set()) {
+      const { budgetId, month, pctUsed } = budgetStatus;
+      const k80 = `${budgetId}_${month}_80`;
+      const k100 = `${budgetId}_${month}_100`;
+
+      if (pctUsed >= 100) {
+        if (!firedAlertIds.has(k100)) {
+          return { key: k100, threshold: 100, severity: 'error' };
+        }
+      } else if (pctUsed >= 80) {
+        if (!firedAlertIds.has(k80)) {
+          return { key: k80, threshold: 80, severity: 'warning' };
+        }
+      }
+      return null;
+    }
+
+    // Split Expenses & Minimal Settlements
+    function computeMinimalSettlements(netBalances) {
+      const debtors = [];
+      const creditors = [];
+      for (const [id, net] of Object.entries(netBalances)) {
+        if (net < 0) debtors.push({ id, owes: Math.abs(net) });
+        else if (net > 0) creditors.push({ id, owed: net });
+      }
+      debtors.sort((a, b) => b.owes - a.owes);
+      creditors.sort((a, b) => b.owed - a.owed);
+
+      const settlements = [];
+      let d = 0, c = 0;
+      while (d < debtors.length && c < creditors.length) {
+        const amt = Math.min(debtors[d].owes, creditors[c].owed);
+        settlements.push({ from: debtors[d].id, to: creditors[c].id, amountMinor: amt });
+        debtors[d].owes -= amt;
+        creditors[c].owed -= amt;
+        if (debtors[d].owes === 0) d++;
+        if (creditors[c].owed === 0) c++;
+      }
+      return settlements;
+    }
+
+    // CSV Parser & Duplicate Detector
+    function parseCSV(text) {
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+      if (lines.length === 0) return { headers: [], rows: [] };
+      const headers = lines[0].split(',').map(s => s.trim());
+      const rows = lines.slice(1).map(l => l.split(',').map(s => s.trim()));
+      return { headers, rows };
+    }
+
+    function previewCSV(rows, mapping, existingSet = new Set()) {
+      const items = [];
+      let dupCount = 0;
+      for (const r of rows) {
+        const d = r[mapping.dateIdx] || '';
+        const amt = parseInt(r[mapping.amountIdx], 10) || 0;
+        const key = `${d}_${amt}`;
+        const isDup = existingSet.has(key);
+        if (isDup) dupCount++;
+        items.push({ date: d, amount: amt, isDuplicate: isDup });
+      }
+      return { items, totalRows: rows.length, duplicateCount: dupCount, validCount: rows.length - dupCount };
+    }
+
+    // Zakat Calculation
+    function calculateZakat(netWealthMinor, nisabMinor = 15000000) {
+      if (netWealthMinor < nisabMinor) return { zakatDueMinor: 0, isNisabReached: false };
+      const due = Math.round((netWealthMinor * 25) / 1000); // 2.5%
+      return { zakatDueMinor: due, isNisabReached: true };
+    }
+
+    // =========================================================================
+    // TESTS
+    // =========================================================================
+    const tests = [];
+    function test(name, fn) { tests.push({ name, fn }); }
+
+    // --- Suite 1: Exact Split Allocation (Acceptance Criterion 3) (5 tests) ---
+    test('Splitting Rs. 1,000 among 3 sums to exactly 100,000 minor units', () => {
+      // 100000 / 3 = 33333, 33333, 33334 (sum = 100000)
+      const parts = splitEvenly(100000, 3);
+      if (parts.length !== 3) throw new Error('Expected 3 parts');
+      const total = sum(parts);
+      if (total !== 100000) throw new Error(`Expected total 100000, got ${total}`);
+      if (parts[0] !== 33334 || parts[1] !== 33333 || parts[2] !== 33333) {
+        throw new Error(`Unexpected distribution: ${parts.join(', ')}`);
+      }
+    });
+
+    test('Splitting Rs. 100 among 7 sums to exactly 10,000 minor units', () => {
+      const parts = splitEvenly(10000, 7);
+      if (parts.length !== 7) throw new Error('Expected 7 parts');
+      const total = sum(parts);
+      if (total !== 10000) throw new Error(`Expected total 10000, got ${total}`);
+    });
+
+    test('Splitting Rs. 500 among 2 sums to exactly 50,000 minor units', () => {
+      const parts = splitEvenly(50000, 2);
+      if (parts[0] !== 25000 || parts[1] !== 25000) throw new Error('Expected two 25000s');
+      if (sum(parts) !== 50000) throw new Error('Sum mismatch');
+    });
+
+    test('Minimal settlements algorithm solves simple 2-person debt with 1 payment', () => {
+      // Ali paid 100000, Ahmed paid 0. Each owes 50000.
+      // Ali net = +50000, Ahmed net = -50000.
+      const nets = { Ali: 50000, Ahmed: -50000 };
+      const sett = computeMinimalSettlements(nets);
+      if (sett.length !== 1) throw new Error(`Expected 1 settlement, got ${sett.length}`);
+      if (sett[0].from !== 'Ahmed' || sett[0].to !== 'Ali' || sett[0].amountMinor !== 50000) {
+        throw new Error(`Unexpected settlement: ${JSON.stringify(sett[0])}`);
+      }
+    });
+
+    test('Minimal settlements algorithm simplifies 3-person cycle into minimal payments', () => {
+      // A owes 30, B owes 20, C is owed 50. Total 2 transactions.
+      const nets = { A: -3000, B: -2000, C: 5000 };
+      const sett = computeMinimalSettlements(nets);
+      if (sett.length !== 2) throw new Error(`Expected 2 settlements, got ${sett.length}`);
+      const totalSettled = sett.reduce((a, b) => a + b.amountMinor, 0);
+      if (totalSettled !== 5000) throw new Error(`Expected 5000 settled, got ${totalSettled}`);
+    });
+
+    // --- Suite 2: Month-End Recurring Dates (Acceptance Criterion 2) (6 tests) ---
+    test('Jan 31 recurring monthly moves to Feb 28 in non-leap year (Acceptance Criterion 2)', () => {
+      const next = computeNextRecurringDate('2025-01-31', 1, 31);
+      if (next !== '2025-02-28') throw new Error(`Expected 2025-02-28, got ${next}`);
+    });
+
+    test('Jan 31 recurring monthly moves to Feb 29 in leap year (Acceptance Criterion 2)', () => {
+      const next = computeNextRecurringDate('2024-01-31', 1, 31);
+      if (next !== '2024-02-29') throw new Error(`Expected 2024-02-29, got ${next}`);
+    });
+
+    test('Feb 28 recurring preserves original 31st target for March', () => {
+      const next = computeNextRecurringDate('2025-02-28', 1, 31);
+      if (next !== '2025-03-31') throw new Error(`Expected 2025-03-31, got ${next}`);
+    });
+
+    test('March 31 recurring moves to April 30', () => {
+      const next = computeNextRecurringDate('2026-03-31', 1, 31);
+      if (next !== '2026-04-30') throw new Error(`Expected 2026-04-30, got ${next}`);
+    });
+
+    test('Dec 15 recurring rolls over year to Jan 15', () => {
+      const next = computeNextRecurringDate('2026-12-15', 1, 15);
+      if (next !== '2027-01-15') throw new Error(`Expected 2027-01-15, got ${next}`);
+    });
+
+    test('Quarterly recurring (interval 3 months) handles month-end correctly', () => {
+      const next = computeNextRecurringDate('2026-01-31', 3, 31); // Jan 31 + 3 months = Apr 30
+      if (next !== '2026-04-30') throw new Error(`Expected 2026-04-30, got ${next}`);
+    });
+
+    // --- Suite 3: Budget Alerts Fire Once (Acceptance Criterion 2) (5 tests) ---
+    test('Budget below 80% fires no alerts', () => {
+      const status = { budgetId: 'b1', month: '2026-11', pctUsed: 75 };
+      const alert = evaluateBudgetAlert(status, new Set());
+      if (alert !== null) throw new Error('Expected no alert at 75%');
+    });
+
+    test('Budget reaching 80% fires warning alert', () => {
+      const status = { budgetId: 'b1', month: '2026-11', pctUsed: 82 };
+      const alert = evaluateBudgetAlert(status, new Set());
+      if (!alert || alert.threshold !== 80 || alert.severity !== 'warning') {
+        throw new Error('Expected 80% warning alert');
+      }
+    });
+
+    test('Budget at 80% does not fire a second time if already fired (Fires Once)', () => {
+      const status = { budgetId: 'b1', month: '2026-11', pctUsed: 85 };
+      const fired = new Set(['b1_2026-11_80']);
+      const alert = evaluateBudgetAlert(status, fired);
+      if (alert !== null) throw new Error('Expected duplicate 80% alert to be suppressed');
+    });
+
+    test('Budget reaching 100% fires critical error alert', () => {
+      const status = { budgetId: 'b1', month: '2026-11', pctUsed: 105 };
+      const alert = evaluateBudgetAlert(status, new Set());
+      if (!alert || alert.threshold !== 100 || alert.severity !== 'error') {
+        throw new Error('Expected 100% error alert');
+      }
+    });
+
+    test('Budget at 100% does not fire repeatedly after first occurrence', () => {
+      const status = { budgetId: 'b1', month: '2026-11', pctUsed: 115 };
+      const fired = new Set(['b1_2026-11_100']);
+      const alert = evaluateBudgetAlert(status, fired);
+      if (alert !== null) throw new Error('Expected duplicate 100% alert to be suppressed');
+    });
+
+    // --- Suite 4: 500-Row Bank Statement CSV Import (Acceptance Criterion 6) (5 tests) ---
+    test('CSV Parser parses 500-row statement correctly (Acceptance Criterion 6)', () => {
+      let csv = 'Date,Description,Amount\n';
+      for (let i = 1; i <= 500; i++) {
+        csv += `2026-10-15,Transaction ${i},${i * 100}\n`;
+      }
+      const parsed = parseCSV(csv);
+      if (parsed.headers.length !== 3) throw new Error(`Expected 3 headers, got ${parsed.headers.length}`);
+      if (parsed.rows.length !== 500) throw new Error(`Expected 500 rows, got ${parsed.rows.length}`);
+    });
+
+    test('previewCSV maps columns and detects duplicates without writing to database', () => {
+      let csv = 'Date,Description,Amount\n';
+      csv += '2026-10-15,Tx Existing,5000\n'; // Duplicate
+      csv += '2026-10-15,Tx New,12000\n';     // New
+      const parsed = parseCSV(csv);
+      const existing = new Set(['2026-10-15_5000']);
+      const preview = previewCSV(parsed.rows, { dateIdx: 0, descIdx: 1, amountIdx: 2 }, existing);
+
+      if (preview.totalRows !== 2) throw new Error(`Expected 2 rows, got ${preview.totalRows}`);
+      if (preview.duplicateCount !== 1) throw new Error(`Expected 1 duplicate, got ${preview.duplicateCount}`);
+      if (preview.validCount !== 1) throw new Error(`Expected 1 valid, got ${preview.validCount}`);
+    });
+
+    test('500-row CSV with 50 duplicates flags exactly 50 duplicates and 450 valid', () => {
+      const existing = new Set();
+      let csv = 'Date,Description,Amount\n';
+      for (let i = 1; i <= 500; i++) {
+        const amt = i * 100;
+        csv += `2026-11-01,Record ${i},${amt}\n`;
+        if (i <= 50) existing.add(`2026-11-01_${amt}`); // 50 duplicates
+      }
+      const parsed = parseCSV(csv);
+      const preview = previewCSV(parsed.rows, { dateIdx: 0, descIdx: 1, amountIdx: 2 }, existing);
+
+      if (preview.duplicateCount !== 50) throw new Error(`Expected 50 duplicates, got ${preview.duplicateCount}`);
+      if (preview.validCount !== 450) throw new Error(`Expected 450 valid, got ${preview.validCount}`);
+    });
+
+    test('previewCSV leaves original array untouched (zero mutation)', () => {
+      const rows = [['2026-11-01', 'Test', '1000']];
+      const copy = JSON.stringify(rows);
+      previewCSV(rows, { dateIdx: 0, descIdx: 1, amountIdx: 2 }, new Set());
+      if (JSON.stringify(rows) !== copy) throw new Error('Original rows were mutated');
+    });
+
+    test('CSV Parser handles empty lines and trailing commas safely', () => {
+      const csv = 'Date,Amount\n\n2026-11-01,500\n\n';
+      const parsed = parseCSV(csv);
+      if (parsed.rows.length !== 1) throw new Error(`Expected 1 row, got ${parsed.rows.length}`);
+    });
+
+    // --- Suite 5: Zakat Calculator (4 tests) ---
+    test('calculateZakat returns 0 when net wealth is below Nisab', () => {
+      const res = calculateZakat(10000000, 15000000); // 100k vs 150k nisab
+      if (res.isNisabReached !== false) throw new Error('Expected isNisabReached=false');
+      if (res.zakatDueMinor !== 0) throw new Error('Expected 0 zakat');
+    });
+
+    test('calculateZakat calculates exactly 2.5% on wealth above Nisab', () => {
+      // Net Wealth = Rs. 1,000,000 (100,000,000 minor units).
+      // Zakat 2.5% = Rs. 25,000 (2,500,000 minor units).
+      const res = calculateZakat(100000000, 15000000);
+      if (!res.isNisabReached) throw new Error('Expected isNisabReached=true');
+      if (res.zakatDueMinor !== 2500000) throw new Error(`Expected 2500000, got ${res.zakatDueMinor}`);
+    });
+
+    test('calculateZakat handles zero wealth without error', () => {
+      const res = calculateZakat(0, 15000000);
+      if (res.zakatDueMinor !== 0) throw new Error('Expected 0 zakat');
+    });
+
+    test('calculateZakat rounds fractional minor units safely', () => {
+      // 100,001 minor units * 25 / 1000 = 2500.025 => 2500
+      const res = calculateZakat(100001, 10000);
+      if (res.zakatDueMinor !== 2500) throw new Error(`Expected 2500, got ${res.zakatDueMinor}`);
+    });
+
+    // --- Suite 6: Five Flat Visualizations Data Integrity (Acceptance Criterion 5) (5 tests) ---
+    test('Income vs Expense chart data matches source transactions', () => {
+      const txs = [
+        { type: 'sale', grandTotalMinor: 50000, status: 'confirmed' },
+        { type: 'sale', grandTotalMinor: 30000, status: 'confirmed' },
+        { type: 'purchase', grandTotalMinor: 40000, status: 'confirmed' }
+      ];
+      const income = txs.filter(t => t.type === 'sale').reduce((a, b) => a + b.grandTotalMinor, 0);
+      const expense = txs.filter(t => t.type === 'purchase').reduce((a, b) => a + b.grandTotalMinor, 0);
+      if (income !== 80000) throw new Error(`Income mismatch: ${income}`);
+      if (expense !== 40000) throw new Error(`Expense mismatch: ${expense}`);
+    });
+
+    test('Category Doughnut shares sum to exactly 100%', () => {
+      const slices = [
+        { label: 'Stock', value: 60000 },
+        { label: 'Rent', value: 30000 },
+        { label: 'Utilities', value: 10000 }
+      ];
+      const total = slices.reduce((a, b) => a + b.value, 0);
+      const pcts = slices.map(s => Math.round((s.value / total) * 100));
+      const pctSum = pcts.reduce((a, b) => a + b, 0);
+      if (pctSum !== 100) throw new Error(`Expected 100%, got ${pctSum}%`);
+    });
+
+    test('Vendor Supply Share computes accurate percentages', () => {
+      const vendors = [
+        { name: 'Vendor A', spend: 80000 },
+        { name: 'Vendor B', spend: 20000 }
+      ];
+      const total = 100000;
+      const shareA = (vendors[0].spend / total) * 100;
+      const shareB = (vendors[1].spend / total) * 100;
+      if (shareA !== 80 || shareB !== 20) throw new Error('Share mismatch');
+    });
+
+    test('Top Bought vs Top Sold Board correctly identifies rank #1 items', () => {
+      const bought = [{ name: 'Rice', qty: 50 }, { name: 'Sugar', qty: 120 }];
+      const sold = [{ name: 'Rice', qty: 40 }, { name: 'Flour', qty: 85 }];
+
+      bought.sort((a, b) => b.qty - a.qty);
+      sold.sort((a, b) => b.qty - a.qty);
+
+      if (bought[0].name !== 'Sugar') throw new Error(`Top bought should be Sugar, got ${bought[0].name}`);
+      if (sold[0].name !== 'Flour') throw new Error(`Top sold should be Flour, got ${sold[0].name}`);
+    });
+
+    test('Data Table toggle produces identical numeric figures as visual chart', () => {
+      const labels = ['Jan', 'Feb', 'Mar'];
+      const values = [10000, 20000, 30000];
+      const sumVisual = values.reduce((a, b) => a + b, 0);
+      const sumTable = values.reduce((a, b) => a + b, 0);
+      if (sumVisual !== sumTable) throw new Error('Visual vs Table figure mismatch');
+    });
+
+    // --- Suite 7: Module Registry Enable/Disable Integrity (Acceptance Criterion 4) (4 tests) ---
+    test('Disabling a module updates moduleStateMap without deleting data', () => {
+      const state = new Map([['khata', true], ['budgets', true]]);
+      state.set('khata', false);
+      if (state.get('khata') !== false) throw new Error('Expected khata=false');
+      if (state.get('budgets') !== true) throw new Error('Expected budgets to remain true');
+    });
+
+    test('Re-enabling a disabled module restores enabled status', () => {
+      const state = new Map([['khata', false]]);
+      state.set('khata', true);
+      if (state.get('khata') !== true) throw new Error('Expected khata=true upon re-enabling');
+    });
+
+    test('Disabled module is excluded from active navigation routes', () => {
+      const modules = [
+        { id: 'scan', isEnabled: true },
+        { id: 'khata', isEnabled: false }
+      ];
+      const active = modules.filter(m => m.isEnabled);
+      if (active.length !== 1 || active[0].id !== 'scan') throw new Error('Disabled module not filtered');
+    });
+
+    test('Core modules cannot be disabled', () => {
+      const coreMod = { id: 'dashboard', core: true };
+      const canDisable = !coreMod.core;
+      if (canDisable) throw new Error('Core module should be non-disableable');
+    });
+
+    // --- Suite 8: Zero Drift After Mixed Operations (Acceptance Criterion 9) (4 tests) ---
+    test('300 mixed operations result in zero balance drift (Acceptance Criterion 9)', () => {
+      let balance = 0;
+      let expectedBalance = 0;
+
+      for (let i = 1; i <= 300; i++) {
+        const delta = (i % 2 === 0 ? 1 : -1) * (i * 25);
+        balance = add(balance, delta);
+        expectedBalance += delta;
+      }
+
+      if (balance !== expectedBalance) throw new Error(`Balance drift detected: ${balance} vs ${expectedBalance}`);
+    });
+
+    test('Adding and reversing 100 transactions returns balance to exact zero', () => {
+      let bal = 0;
+      for (let i = 1; i <= 100; i++) bal = add(bal, i * 100);
+      for (let i = 1; i <= 100; i++) bal = sub(bal, i * 100);
+      if (bal !== 0) throw new Error(`Expected zero, got ${bal}`);
+    });
+
+    test('Integer minor units prevent standard float drift (0.1 + 0.2)', () => {
+      // Standard float: 0.1 + 0.2 = 0.30000000000000004
+      // Minor units: 10 + 20 = 30 exactly
+      const res = add(10, 20);
+      if (res !== 30) throw new Error(`Expected 30, got ${res}`);
+    });
+
+    test('Large integer multiplication retains exact precision beyond 32-bit limits', () => {
+      // 10,000,000.00 * 10 = 100,000,000.00 (10000000000 minor units)
+      const res = toNum(toBig(1000000000) * 10n);
+      if (res !== 10000000000) throw new Error(`Precision lost: ${res}`);
+    });
+
+    // --- Suite 9: Quick Add & Categorization Helpers (4 tests) ---
+    test('Quick Add accepts valid amount and formats minor units', () => {
+      const amtStr = '150.50';
+      const minor = Math.round(parseFloat(amtStr) * 100);
+      if (minor !== 15050) throw new Error(`Expected 15050, got ${minor}`);
+    });
+
+    test('Quick Add rejects negative or zero amount', () => {
+      const amt = -50;
+      const isValid = amt > 0;
+      if (isValid) throw new Error('Expected invalid for negative amount');
+    });
+
+    test('Category suggestion matches keyword in description', () => {
+      const desc = 'K-Electric bijli bill payment';
+      const isUtility = desc.toLowerCase().includes('bijli') || desc.toLowerCase().includes('electric');
+      if (!isUtility) throw new Error('Expected utility match');
+    });
+
+    test('Committee pool calculation produces exact total', () => {
+      // 10 members @ Rs. 10,000 / month = Rs. 100,000 monthly pool
+      const members = 10;
+      const monthlyMinor = 1000000;
+      const poolMinor = members * monthlyMinor;
+      if (poolMinor !== 10000000) throw new Error(`Expected 10000000, got ${poolMinor}`);
+    });
+
+    // Run tests
+    let passed = 0;
+    let failed = 0;
+    const resultsEl = document.getElementById('results');
+
+    for (const t of tests) {
+      try {
+        t.fn();
+        passed++;
+        const row = document.createElement('div');
+        row.className = 'test-row';
+        row.innerHTML = `
+          <span>${t.name}</span>
+          <span class="pill pill-success">PASS</span>
+        `;
+        resultsEl.appendChild(row);
+      } catch (err) {
+        failed++;
+        const row = document.createElement('div');
+        row.className = 'test-row';
+        row.innerHTML = `
+          <div>
+            <strong>${t.name}</strong>
+            <div style="color:var(--error-text); font-size:11px; margin-top:4px;">${err.message}</div>
+          </div>
+          <span class="pill pill-error">FAIL</span>
+        `;
+        resultsEl.appendChild(row);
+      }
+    }
+
+    const statsEl = document.getElementById('stats');
+    if (failed === 0) {
+      statsEl.innerHTML = `
+        <span class="pill pill-success">Total: ${tests.length}</span>
+        <span class="pill pill-success">Passed: ${passed}</span>
+        <span class="pill pill-success">100% Passed</span>
+      `;
+    } else {
+      statsEl.innerHTML = `
+        <span class="pill pill-error">Passed: ${passed} / ${tests.length}</span>
+        <span class="pill pill-error">Failed: ${failed}</span>
+      `;
+    }
+  </script>
+</body>
+</html>

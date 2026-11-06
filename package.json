@@ -1,0 +1,21 @@
+{
+  "name": "smart-bill-auditor",
+  "version": "1.1.0",
+  "description": "Smart Bill Auditor & Expense Suite — Offline-first standalone web application",
+  "main": "app.standalone.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/run-all-tests.js"
+  },
+  "keywords": [
+    "bill-auditor",
+    "accounting",
+    "invoice-scanner",
+    "pwa",
+    "offline-first",
+    "urdu-support"
+  ],
+  "author": "Smart Bill Auditor Team",
+  "license": "UNLICENSED",
+  "private": true
+}

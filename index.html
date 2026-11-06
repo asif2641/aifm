@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#2F5D50">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="Intelligent Bill Auditor & Expense Suite — Offline-first standalone web application.">
+  
+  <title>Smart Bill Auditor & Expense Suite</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Core Stylesheets (Editorial Flat Luxury) -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/print.css" media="print">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Mobile Backdrop Overlay -->
+    <div class="mobile-overlay" id="mobile-overlay"></div>
+
+    <!-- Desktop Sidebar Navigation -->
+    <aside class="sidebar" id="app-sidebar" aria-label="Main Navigation">
+      <div class="sidebar-header">
+        <img id="sidebar-brand-logo" class="brand-logo" style="display:none; max-width:100%; object-fit:contain; margin-bottom:8px;" alt="Logo">
+        <span class="brand-badge">Audit Suite</span>
+        <h2 class="brand-title">Smart Bill Auditor</h2>
+        <p class="brand-sub">Editorial Flat Luxury &bull; v<span id="sidebar-version">1.1.0</span></p>
+      </div>
+
+      <nav class="sidebar-nav" id="sidebar-nav-container">
+        <!-- Dynamically populated from modules registry -->
+      </nav>
+
+      <div class="sidebar-footer">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Status:</span>
+          <span class="pill pill-success" id="sidebar-status-pill">Ready</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Application Wrapper -->
+    <div class="main-wrapper">
+      <!-- Desktop Top Bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <span style="font-size: 13px; font-weight: 600; color: var(--muted);" id="breadcrumb-title">Overview</span>
+        </div>
+        <div class="topbar-right">
+          <a href="#/scan" class="btn btn-primary btn-sm" id="btn-topbar-scan" style="display:inline-flex; align-items:center; gap:6px; font-weight:600;">
+            <span>📷</span> Scan Bill
+          </a>
+          <a href="#/manual-bill" class="btn btn-secondary btn-sm" id="btn-topbar-manual" style="display:inline-flex; align-items:center; gap:6px;">
+            <span>✍️</span> Manual Bill
+          </a>
+          <a href="#/tax-reports" class="btn btn-secondary btn-sm" id="btn-topbar-reports" style="display:inline-flex; align-items:center; gap:6px;">
+            <span>📊</span> Reports
+          </a>
+        </div>
+      </header>
+
+      <!-- Mobile Header -->
+      <header class="mobile-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button type="button" class="btn btn-secondary btn-icon" id="mobile-menu-btn" aria-label="Open Menu">
+            <svg style="width:20px; height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <span style="font-weight: 700; font-size: 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Smart Bill Auditor</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <a href="#/scan" class="btn btn-primary btn-sm" id="mobile-btn-scan" style="padding:4px 8px; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:4px; text-decoration:none;">
+            <span>📷</span> Scan
+          </a>
+          <a href="#/manual-bill" class="btn btn-secondary btn-sm" id="mobile-btn-manual" style="padding:4px 8px; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:4px; text-decoration:none;">
+            <span>✍️</span> + Bill
+          </a>
+        </div>
+      </header>
+
+      <!-- Notification / Degradation Banners -->
+      <div id="banner-container" style="padding: 0 var(--space-16); margin-top: var(--space-16); max-width: 100%; box-sizing: border-box;">
+        <!-- File Protocol Notice Banner (shown only on file://) -->
+        <div class="notice-banner" id="file-protocol-notice" style="display: none;">
+          <div class="notice-banner-content">
+            <span style="font-size: 16px;">ℹ️</span>
+            <div>
+              <strong>Running directly from file:// protocol:</strong>
+              <span> Camera capture and Service Worker caching require HTTPS or localhost. You can still use file uploads and IndexedDB.</span>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-dismiss-file-notice">Dismiss</button>
+        </div>
+
+        <!-- Service Worker Update Banner (shown only when a new version is waiting) -->
+        <div class="notice-banner info" id="sw-update-notice" style="display: none;">
+          <div class="notice-banner-content">
+            <span style="font-size: 16px;">🔄</span>
+            <div>
+              <strong>New version available:</strong>
+              <span> A newer version has been cached in the background.</span>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-sw-reload">Reload & Update</button>
+        </div>
+      </div>
+
+      <!-- Main Content View Container -->
+      <main class="content-area" id="main-content" role="main">
+        <div class="empty-state">
+          <div class="empty-state-icon">⏳</div>
+          <h3>Initializing Application...</h3>
+          <p>Setting up IndexedDB stores and loading module registry.</p>
+        </div>
+      </main>
+    </div>
+
+    <!-- Mobile Bottom Navigation (prominent center Scan button) -->
+    <nav class="bottom-nav" id="mobile-bottom-nav" aria-label="Mobile Navigation">
+      <a href="#/" class="bottom-nav-item" id="bottom-nav-home">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+        <span>Home</span>
+      </a>
+
+      <a href="#/vault" class="bottom-nav-item" id="bottom-nav-vault">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 8v13H3V8"></path><path d="M1 3h22v5H1z"></path><path d="M10 12h4"></path></svg>
+        <span>Vault</span>
+      </a>
+
+      <!-- Center Scan Button -->
+      <a href="#/scan" class="bottom-nav-scan-btn" aria-label="Scan Bill" id="bottom-nav-scan">
+        <svg style="width:24px; height:24px; stroke:white; fill:none; stroke-width:2;" viewBox="0 0 24 24">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+          <circle cx="12" cy="13" r="4"></circle>
+        </svg>
+      </a>
+
+      <a href="#/tax-reports" class="bottom-nav-item" id="bottom-nav-reports">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M18 20V10"></path><path d="M12 20V4"></path><path d="M6 20v-6"></path></svg>
+        <span>Reports</span>
+      </a>
+
+      <button type="button" class="bottom-nav-item" id="bottom-nav-menu-toggle" style="background:none; border:none; cursor:pointer;">
+        <svg class="nav-icon" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        <span>Menu</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container" role="region" aria-live="polite"></div>
+
+  <!-- Phase 6 Demo, Synthetic Bills & Guided Tour Modules -->
+  <script src="js/demo/build-config.js"></script>
+  <script src="js/demo/demo-data.js"></script>
+  <script src="js/demo/demo-engine.js"></script>
+  <script src="js/demo/synthetic-bills.js"></script>
+  <script src="js/demo/tour.js"></script>
+
+  <!-- Application Bootstrap (Zero-CORS standalone bundle for file:// and http://) -->
+  <script src="app.standalone.js"></script>
+</body>
+</html>

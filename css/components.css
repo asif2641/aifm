@@ -1,0 +1,446 @@
+/**
+ * @file components.css
+ * @description Editorial Flat Luxury reusable UI components.
+ * Strictly 0 box-shadow, 0 text-shadow, 0 gradients. Solid fills & 1px borders.
+ */
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  min-height: var(--min-tap-target);
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn:hover {
+  text-decoration: none;
+}
+
+.btn-primary {
+  background-color: var(--primary);
+  color: var(--primary-text);
+  border-color: var(--primary);
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.btn-secondary {
+  background-color: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn-secondary:hover {
+  background-color: var(--panel-active);
+  border-color: var(--border-strong);
+}
+
+.btn-accent {
+  background-color: var(--secondary);
+  color: var(--secondary-text);
+  border-color: var(--secondary);
+}
+
+.btn-accent:hover {
+  background-color: var(--secondary-hover);
+  border-color: var(--secondary-hover);
+}
+
+.btn-danger {
+  background-color: var(--error-bg);
+  color: var(--error-text);
+  border-color: var(--error-border);
+}
+
+.btn-danger:hover {
+  background-color: var(--error-text);
+  color: #FFFFFF;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  min-height: 36px;
+}
+
+.btn-icon {
+  width: var(--min-tap-target);
+  height: var(--min-tap-target);
+  padding: 0;
+  border-radius: 0;
+}
+
+/* ==========================================================================
+   Cards & Panels
+   ========================================================================== */
+.card {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  padding: var(--space-20);
+  margin-bottom: var(--space-20);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-12);
+  margin-bottom: var(--space-16);
+  border-bottom: 1px solid var(--border);
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.panel {
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  padding: var(--space-16);
+}
+
+/* ==========================================================================
+   Status Pills (Solid Fill + 1px Border of matching hue)
+   ========================================================================== */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border: 1px solid currentColor;
+}
+
+.pill-success {
+  background-color: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success-text);
+}
+
+.pill-warning {
+  background-color: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+
+.pill-error {
+  background-color: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+.pill-neutral {
+  background-color: var(--panel);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.pill-primary {
+  background-color: var(--panel);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ==========================================================================
+   Form Fields
+   ========================================================================== */
+.form-group {
+  margin-bottom: var(--space-16);
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: var(--space-4);
+}
+
+.form-control {
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  padding: 8px 12px;
+  min-height: var(--min-tap-target);
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 0;
+}
+
+.form-control:focus {
+  border-color: var(--primary);
+}
+
+/* Remove default stepper/spin arrows from all number inputs application-wide */
+.form-control[type="number"]::-webkit-outer-spin-button,
+.form-control[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  margin: 0 !important;
+  display: none !important;
+}
+
+.form-control[type="number"],
+input[type="number"] {
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
+}
+
+.sale-l-qty,
+.po-l-qty {
+  text-align: center;
+}
+
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  cursor: pointer;
+  min-height: var(--min-tap-target);
+}
+
+.toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  width: 44px;
+  height: 24px;
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  position: relative;
+  transition: background-color 0.15s ease;
+}
+
+.toggle-thumb {
+  width: 16px;
+  height: 16px;
+  background-color: var(--muted);
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.toggle-input:checked + .toggle-track {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.toggle-input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(20px);
+  background-color: #FFFFFF;
+}
+
+/* ==========================================================================
+   Data Table
+   ========================================================================== */
+.table-container {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  background-color: var(--card);
+  margin-bottom: var(--space-20);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.table th {
+  background-color: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background-color: var(--panel);
+}
+
+/* ==========================================================================
+   Modals & Overlays
+   ========================================================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(30, 32, 30, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-16);
+}
+
+.modal-content {
+  background-color: var(--card);
+  border: 1px solid var(--border-strong);
+  max-width: 520px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  padding: var(--space-16) var(--space-20);
+  border-bottom: 1px solid var(--border);
+  background-color: var(--panel);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.modal-body {
+  padding: var(--space-20);
+}
+
+.modal-footer {
+  padding: var(--space-12) var(--space-20);
+  border-top: 1px solid var(--border);
+  background-color: var(--panel);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-12);
+}
+
+/* ==========================================================================
+   Toast Notifications
+   ========================================================================== */
+.toast-container {
+  position: fixed;
+  bottom: calc(var(--space-24) + var(--sab));
+  right: var(--space-24);
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  max-width: 380px;
+  width: calc(100% - 48px);
+}
+
+.toast {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  padding: var(--space-12) var(--space-16);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.toast.toast-success {
+  background-color: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success-text);
+}
+
+.toast.toast-error {
+  background-color: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+.toast.toast-warning {
+  background-color: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+
+/* ==========================================================================
+   Empty / Loading / Error States
+   ========================================================================== */
+.empty-state {
+  text-align: center;
+  padding: var(--space-48) var(--space-24);
+  background-color: var(--card);
+  border: 1px solid var(--border);
+}
+
+.empty-state-icon {
+  font-size: 40px;
+  margin-bottom: var(--space-16);
+}
+
+.empty-state h3 {
+  margin-bottom: var(--space-8);
+}
+
+.empty-state p {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 auto;
+}
+
+/* Grid helper */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-16);
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-16);
+}
+
+@media (max-width: 768px) {
+  .grid-2, .grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .toast-container {
+    left: var(--space-16);
+    right: var(--space-16);
+    bottom: calc(var(--bottom-nav-height) + var(--sab) + var(--space-12));
+    max-width: 100%;
+  }
+}

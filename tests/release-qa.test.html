@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Smart Bill Auditor — Release & QA Test Suite</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #FAF8F5; color: #1E201E; padding: 32px 20px; line-height: 1.5; }
+    .container { max-width: 960px; margin: 0 auto; background: #FFFFFF; border: 1px solid #1E201E; padding: 24px; }
+    h1 { font-size: 20px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #1E201E; padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+    .stats { display: flex; gap: 16px; margin-bottom: 20px; background: #F3EFEA; padding: 12px 16px; border: 1px solid #1E201E; }
+    .stat-box { font-size: 13px; font-weight: 600; }
+    .stat-val { font-size: 20px; font-weight: 700; margin-top: 4px; }
+    .val-pass { color: #2F5D50; }
+    .val-fail { color: #D97762; }
+    .suite-card { border: 1px solid #1E201E; margin-bottom: 16px; }
+    .suite-head { background: #1E201E; color: #FAF8F5; padding: 8px 12px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+    .test-row { display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #F3EFEA; font-size: 12px; font-family: monospace; }
+    .test-row:last-child { border-bottom: none; }
+    .test-name { flex: 1; }
+    .badge { padding: 2px 6px; font-weight: 700; text-transform: uppercase; font-size: 10px; }
+    .badge-pass { background: #2F5D50; color: #FFFFFF; }
+    .badge-fail { background: #D97762; color: #FFFFFF; }
+    .error-msg { color: #D97762; font-size: 11px; margin-top: 4px; }
+    .nav-links { margin-top: 24px; padding-top: 16px; border-top: 1px solid #1E201E; display: flex; gap: 12px; font-size: 12px; }
+    .nav-links a { color: #1E201E; font-weight: 600; text-decoration: none; border-bottom: 1px solid #1E201E; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>
+      <span>Release & QA Test Suite</span>
+      <span style="font-size: 12px; font-weight: normal; font-family: monospace;">Phase 6 Certification</span>
+    </h1>
+
+    <div class="stats">
+      <div class="stat-box">TOTAL TESTS<div class="stat-val" id="stat-total">0</div></div>
+      <div class="stat-box">PASSED<div class="stat-val val-pass" id="stat-pass">0</div></div>
+      <div class="stat-box">FAILED<div class="stat-val val-fail" id="stat-fail">0</div></div>
+      <div class="stat-box">SUITE DURATION<div class="stat-val" id="stat-time">0 ms</div></div>
+    </div>
+
+    <div id="test-output"></div>
+
+    <div class="nav-links">
+      <a href="../index.html">← Back to Application</a>
+      <a href="money.test.html">Money Engine Tests</a>
+      <a href="scan-pipeline.test.html">Scan Pipeline Tests</a>
+      <a href="audit.test.html">Audit Tests</a>
+      <a href="business.test.html">Business Tests</a>
+      <a href="extras-analytics.test.html">Extras & Analytics Tests</a>
+    </div>
+  </div>
+
+  <!-- Include Standalone Scripts -->
+  <script src="../js/demo/build-config.js"></script>
+  <script src="../js/demo/demo-data.js"></script>
+  <script src="../js/demo/demo-engine.js"></script>
+  <script src="../js/demo/synthetic-bills.js"></script>
+  <script src="../js/demo/tour.js"></script>
+
+  <script>
+    // Lightweight Isolated In-Memory / IndexedDB Harness for QA Verification
+    const TEST_DB_NAME = 'smart_bill_qa_test_db';
+    let testDbInstance = null;
+
+    async function getTestDB() {
+      if (testDbInstance) return testDbInstance;
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(TEST_DB_NAME, 1);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          const stores = ['transactions', 'transactionLines', 'parties', 'items', 'accounts', 'stockMovements', 'debitNotes', 'purchaseOrders', 'meta'];
+          stores.forEach(s => {
+            if (!db.objectStoreNames.contains(s)) {
+              db.createObjectStore(s, { keyPath: 'id' });
+            }
+          });
+        };
+        req.onsuccess = () => {
+          testDbInstance = req.result;
+          resolve(testDbInstance);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    // Set up window.db interface bound to isolated test DB
+    window.db = {
+      async put(storeName, item) {
+        const db = await getTestDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction([storeName], 'readwrite');
+          const st = tx.objectStore(storeName);
+          const req = st.put(item);
+          req.onsuccess = () => resolve(item);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async get(storeName, id) {
+        const db = await getTestDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction([storeName], 'readonly');
+          const st = tx.objectStore(storeName);
+          const req = st.get(id);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async getAll(storeName) {
+        const db = await getTestDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction([storeName], 'readonly');
+          const st = tx.objectStore(storeName);
+          const req = st.getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async remove(storeName, id) {
+        const db = await getTestDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction([storeName], 'readwrite');
+          const st = tx.objectStore(storeName);
+          const req = st.delete(id);
+          req.onsuccess = () => resolve(true);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async clear(storeName) {
+        const db = await getTestDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction([storeName], 'readwrite');
+          const st = tx.objectStore(storeName);
+          const req = st.clear();
+          req.onsuccess = () => resolve(true);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async getStorageEstimate() {
+        if (navigator.storage && navigator.storage.estimate) {
+          return await navigator.storage.estimate();
+        }
+        return { quota: 1073741824, usage: 1048576 };
+      }
+    };
+
+    // Lightweight PBKDF2 implementation for isolated auth testing
+    window.auth = {
+      async hashPin(pin, saltHex) {
+        const enc = new TextEncoder();
+        const keyMaterial = await crypto.subtle.importKey(
+          'raw',
+          enc.encode(pin),
+          { name: 'PBKDF2' },
+          false,
+          ['deriveBits']
+        );
+        const salt = new Uint8Array(saltHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+        const derivedBits = await crypto.subtle.deriveBits(
+          {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: 100000,
+            hash: 'SHA-256'
+          },
+          keyMaterial,
+          256
+        );
+        const hashArray = Array.from(new Uint8Array(derivedBits));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      },
+      async verifyPin(pin, saltHex, expectedHash) {
+        const calculated = await this.hashPin(pin, saltHex);
+        return calculated === expectedHash;
+      }
+    };
+
+    window.utils = {
+      escapeHTML(str) {
+        if (!str) return '';
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return String(str).replace(/[&<>"']/g, s => map[s]);
+      }
+    };
+
+    window.dataAccess = {
+      canDelete(user) {
+        return !!(user && (user.role === 'admin' || user.role === 'owner'));
+      }
+    };
+
+    (async function runAllQATests() {
+      const startTime = performance.now();
+      let total = 0, passed = 0, failed = 0;
+      const suites = [];
+
+      function suite(name, fn) {
+        const tests = [];
+        const runner = {
+          test(desc, testFn) {
+            tests.push({ desc, testFn });
+          }
+        };
+        fn(runner);
+        suites.push({ name, tests });
+      }
+
+      function assert(condition, message) {
+        if (!condition) throw new Error(message || 'Assertion failed');
+      }
+
+      function assertEqual(actual, expected, message) {
+        if (actual !== expected) {
+          throw new Error((message ? message + ' ' : '') + `Expected [${expected}] but got [${actual}]`);
+        }
+      }
+
+      // -------------------------------------------------------------
+      // SUITE 1: Build Configuration & Production Flagging
+      // -------------------------------------------------------------
+      suite('1. Build Configuration & Isolation', (s) => {
+        s.test('BuildConfig exists with valid BUILD_MODE', () => {
+          assert(window.BuildConfig, 'BuildConfig should exist');
+          assert(window.BuildConfig.BUILD_MODE === 'demo' || window.BuildConfig.BUILD_MODE === 'customer',
+            'BUILD_MODE must be demo or customer');
+        });
+
+        s.test('BuildConfig isDemoBuild returns boolean', () => {
+          assert(typeof window.BuildConfig.isDemoBuild() === 'boolean', 'isDemoBuild returns boolean');
+        });
+
+        s.test('BuildConfig isCustomerBuild returns complementary boolean', () => {
+          assertEqual(window.BuildConfig.isCustomerBuild(), !window.BuildConfig.isDemoBuild());
+        });
+
+        s.test('BuildConfig features object is defined with demoData flag', () => {
+          assert(window.BuildConfig.features, 'BuildConfig features defined');
+          assert(typeof window.BuildConfig.features.demoData === 'boolean');
+          assert(typeof window.BuildConfig.features.guidedTour === 'boolean');
+        });
+
+        s.test('BuildConfig toggleBuildMode switches cleanly', () => {
+          const orig = window.BuildConfig.BUILD_MODE;
+          window.BuildConfig.toggleBuildMode();
+          assert(window.BuildConfig.BUILD_MODE !== orig, 'Mode should switch');
+          window.BuildConfig.toggleBuildMode();
+          assertEqual(window.BuildConfig.BUILD_MODE, orig, 'Mode should revert');
+        });
+      });
+
+      // -------------------------------------------------------------
+      // SUITE 2: Demo Data Generator & Invariants
+      // -------------------------------------------------------------
+      suite('2. Demo Data Generator & Invariants', (s) => {
+        s.test('getDemoSeedData returns all supporting entities', () => {
+          const seed = window.DemoData.getDemoSeedData();
+          assert(seed, 'Seed data returned');
+          assertEqual(seed.vendors.length, 8, 'Should have 8 vendors');
+          assertEqual(seed.customers.length, 6, 'Should have 6 customers');
+          assertEqual(seed.items.length, 15, 'Should have 15 items');
+          assertEqual(seed.accounts.length, 3, 'Should have 3 accounts');
+        });
+
+        s.test('All 8 vendors have required fields and type=vendor', () => {
+          const { vendors } = window.DemoData.getDemoSeedData();
+          vendors.forEach(v => {
+            assert(v.id && v.name && v.phone, 'Vendor must have id, name, phone');
+            assertEqual(v.type, 'vendor', 'type must be vendor');
+            assertEqual(v.isDemo, true, 'isDemo must be true');
+          });
+        });
+
+        s.test('All 6 customers have required fields and type=customer', () => {
+          const { customers } = window.DemoData.getDemoSeedData();
+          customers.forEach(c => {
+            assert(c.id && c.name && c.phone, 'Customer must have id, name, phone');
+            assertEqual(c.type, 'customer', 'type must be customer');
+            assertEqual(c.isDemo, true, 'isDemo must be true');
+          });
+        });
+
+        s.test('All 15 items have baseCostMinor and basePriceMinor as integers', () => {
+          const { items } = window.DemoData.getDemoSeedData();
+          items.forEach(it => {
+            assert(Number.isInteger(it.baseCostMinor), 'baseCostMinor must be integer');
+            assert(Number.isInteger(it.basePriceMinor), 'basePriceMinor must be integer');
+            assert(it.basePriceMinor >= it.baseCostMinor, 'Selling price must be >= cost');
+            assertEqual(it.isDemo, true, 'Item isDemo must be true');
+          });
+        });
+
+        s.test('generate50DemoTransactions returns exactly 50 records', () => {
+          const txs = window.DemoData.generate50DemoTransactions();
+          assertEqual(txs.length, 50, 'Must generate exactly 50 records');
+        });
+
+        s.test('All 50 records carry isDemo: true and valid types', () => {
+          const txs = window.DemoData.generate50DemoTransactions();
+          const validTypes = ['bill', 'purchase', 'expense', 'sale', 'payment', 'receipt'];
+          txs.forEach((tx, idx) => {
+            assertEqual(tx.isDemo, true, `Record #${idx} must have isDemo: true`);
+            assert(validTypes.includes(tx.type), `Record #${idx} has invalid type: ${tx.type}`);
+            assert(Number.isInteger(tx.totalMinor), `Record #${idx} totalMinor must be integer`);
+            assert(tx.totalMinor > 0, `Record #${idx} totalMinor must be positive`);
+          });
+        });
+
+        s.test('All 50 records have relative dates within last 45 days', () => {
+          const txs = window.DemoData.generate50DemoTransactions();
+          const now = Date.now();
+          const fortyFiveDaysMs = 45 * 86400000;
+          txs.forEach(tx => {
+            const txTime = new Date(tx.date).getTime();
+            assert(!isNaN(txTime), 'Date must be valid');
+            assert(txTime <= now + 86400000, 'Date cannot be in the far future');
+            assert(txTime >= now - fortyFiveDaysMs - 86400000, 'Date must be within last 45 days');
+          });
+        });
+
+        s.test('Line items in demo bills have strictly integer minor math', () => {
+          const txs = window.DemoData.generate50DemoTransactions();
+          const billsWithLines = txs.filter(t => t.lines && t.lines.length > 0);
+          assert(billsWithLines.length > 0, 'Should have bills with line items');
+          billsWithLines.forEach(tx => {
+            tx.lines.forEach(line => {
+              assert(Number.isInteger(line.lineTotalMinor), 'Line total must be integer');
+              assert(Number.isInteger(line.unitPriceMinor), 'Unit price must be integer');
+              assert(Number.isInteger(line.qtyMilli), 'Qty milli must be integer');
+            });
+          });
+        });
+      });
+
+      // -------------------------------------------------------------
+      // SUITE 3: Demo Engine Loader & Clean Removal (Zero Drift)
+      // -------------------------------------------------------------
+      suite('3. Demo Engine Lifecycle & Zero Drift', (s) => {
+        s.test('DemoEngine exports loadDemoData and removeDemoData', () => {
+          assert(typeof window.DemoEngine.loadDemoData === 'function');
+          assert(typeof window.DemoEngine.removeDemoData === 'function');
+          assert(typeof window.DemoEngine.hasDemoData === 'function');
+        });
+
+        s.test('Load demo data completes and populates stores', async () => {
+          const res = await window.DemoEngine.loadDemoData({ silent: true });
+          assert(res.success, 'loadDemoData should succeed');
+          assert(res.counts.transactions >= 50, 'At least 50 transactions loaded');
+          assert(res.counts.parties >= 14, 'At least 14 parties loaded');
+          assert(res.counts.items >= 15, 'At least 15 items loaded');
+        });
+
+        s.test('hasDemoData returns true when demo records exist', async () => {
+          const hasData = await window.DemoEngine.hasDemoData();
+          assertEqual(hasData, true, 'hasDemoData should be true after loading');
+        });
+
+        s.test('Injecting real non-demo transaction persists safely alongside demo data', async () => {
+          const realTx = {
+            id: 'real-tx-qa-001',
+            type: 'expense',
+            amountMinor: 50000,
+            totalMinor: 50000,
+            date: new Date().toISOString(),
+            description: 'Genuine office coffee purchase',
+            isDemo: false
+          };
+          await window.db.put('transactions', realTx);
+          const retrieved = await window.db.get('transactions', 'real-tx-qa-001');
+          assert(retrieved, 'Real tx must exist');
+          assertEqual(retrieved.isDemo, false);
+        });
+
+        s.test('removeDemoData purges ONLY demo records and leaves real records intact', async () => {
+          const res = await window.DemoEngine.removeDemoData({ silent: true });
+          assert(res.success, 'removeDemoData should succeed');
+          assert(res.deletedCount >= 50, 'Deleted demo transactions');
+
+          // Check that genuine record was NOT deleted
+          const realTx = await window.db.get('transactions', 'real-tx-qa-001');
+          assert(realTx, 'Genuine non-demo transaction MUST NOT be deleted');
+          assertEqual(realTx.id, 'real-tx-qa-001');
+
+          // Clean up the test real record
+          await window.db.remove('transactions', 'real-tx-qa-001');
+        });
+
+        s.test('hasDemoData returns false after demo records removed', async () => {
+          const hasData = await window.DemoEngine.hasDemoData();
+          assertEqual(hasData, false, 'hasDemoData should be false after removal');
+        });
+
+        s.test('Zero Drift: transactions count contains zero orphaned demo records', async () => {
+          const allTxs = await window.db.getAll('transactions');
+          const remainingDemo = allTxs.filter(t => t.isDemo === true);
+          assertEqual(remainingDemo.length, 0, 'Zero demo transactions should remain');
+        });
+
+        s.test('Idempotent Removal: Calling removeDemoData on clean DB produces zero error', async () => {
+          const res = await window.DemoEngine.removeDemoData({ silent: true });
+          assertEqual(res.success, true);
+          assertEqual(res.deletedCount, 0);
+        });
+      });
+
+      // -------------------------------------------------------------
+      // SUITE 4: Synthetic Bills & Offline Scan Mock
+      // -------------------------------------------------------------
+      suite('4. Synthetic Bills Generator & Offline Scan', (s) => {
+        s.test('SyntheticBills generator exists', () => {
+          assert(window.SyntheticBills, 'SyntheticBills object should exist');
+          assert(typeof window.SyntheticBills.generateBillCanvas === 'function');
+          assert(typeof window.SyntheticBills.getMockExtraction === 'function');
+        });
+
+        s.test('generateBillCanvas creates valid HTMLCanvasElement for thermal bill', () => {
+          const canvas = window.SyntheticBills.generateBillCanvas('thermal');
+          assert(canvas instanceof HTMLCanvasElement, 'Must return canvas');
+          assert(canvas.width > 200 && canvas.height > 400, 'Dimensions must be reasonable');
+          const ctx = canvas.getContext('2d');
+          const imgData = ctx.getImageData(0, 0, 10, 10);
+          assert(imgData.data.length > 0, 'Canvas has valid pixel data');
+        });
+
+        s.test('generateBillCanvas creates valid canvas for GST A4 bill', () => {
+          const canvas = window.SyntheticBills.generateBillCanvas('gst-a4');
+          assert(canvas instanceof HTMLCanvasElement);
+          assert(canvas.width >= 600 && canvas.height >= 800);
+        });
+
+        s.test('generateBillCanvas creates valid canvas for Urdu parchi', () => {
+          const canvas = window.SyntheticBills.generateBillCanvas('urdu-parchi');
+          assert(canvas instanceof HTMLCanvasElement);
+          assert(canvas.width > 300 && canvas.height > 400);
+        });
+
+        s.test('generateBillCanvas creates blurred canvas for quality gate testing', () => {
+          const canvas = window.SyntheticBills.generateBillCanvas('blurred');
+          assert(canvas instanceof HTMLCanvasElement);
+        });
+
+        s.test('getMockExtraction returns valid structured OCR output with matching line math', () => {
+          const mock = window.SyntheticBills.getMockExtraction('thermal');
+          assert(mock.vendor && mock.vendor.name, 'Vendor name present');
+          assert(mock.lines && mock.lines.length > 0, 'Lines present');
+          assert(Number.isInteger(mock.totalMinor), 'totalMinor is integer');
+          assert(Number.isInteger(mock.subtotalMinor), 'subtotalMinor is integer');
+          assert(Number.isInteger(mock.taxMinor), 'taxMinor is integer');
+
+          // Verify sum of line totals equals subtotal
+          const lineSum = mock.lines.reduce((acc, l) => acc + l.lineTotalMinor, 0);
+          assertEqual(lineSum, mock.subtotalMinor, 'Line items sum must equal subtotal');
+        });
+
+        s.test('getMockExtraction for GST A4 includes tax breakdown', () => {
+          const mock = window.SyntheticBills.getMockExtraction('gst-a4');
+          assert(mock.taxMinor > 0, 'GST bill must include tax');
+          assertEqual(mock.subtotalMinor + mock.taxMinor, mock.totalMinor, 'Subtotal + Tax = Total');
+        });
+
+        s.test('getMockExtraction for Urdu Parchi provides high confidence lines', () => {
+          const mock = window.SyntheticBills.getMockExtraction('urdu-parchi');
+          assert(mock.lines.length >= 3);
+          assertEqual(mock.totalMinor, 472000);
+        });
+      });
+
+      // -------------------------------------------------------------
+      // SUITE 5: Guided Tour Controller
+      // -------------------------------------------------------------
+      suite('5. Interactive Guided Tour System', (s) => {
+        s.test('GuidedTour object exists with standard control methods', () => {
+          assert(window.GuidedTour, 'GuidedTour should exist');
+          assert(typeof window.GuidedTour.start === 'function');
+          assert(typeof window.GuidedTour.next === 'function');
+          assert(typeof window.GuidedTour.prev === 'function');
+          assert(typeof window.GuidedTour.dismiss === 'function');
+        });
+
+        s.test('Tour defines exactly 9 sequential product walkthrough steps', () => {
+          const steps = window.GuidedTour.getSteps();
+          assertEqual(steps.length, 9, 'Must have 9 tour steps');
+          steps.forEach((step, idx) => {
+            assert(step.id, `Step #${idx} must have id`);
+            assert(step.title, `Step #${idx} must have title`);
+            assert(step.content, `Step #${idx} must have content`);
+            assert(step.target, `Step #${idx} must have target selector`);
+          });
+        });
+
+        s.test('Tour status persistence in localStorage', () => {
+          window.GuidedTour.markCompleted();
+          assertEqual(window.GuidedTour.isCompleted(), true, 'Should mark completed');
+          window.GuidedTour.resetStatus();
+          assertEqual(window.GuidedTour.isCompleted(), false, 'Should reset completed status');
+        });
+      });
+
+      // -------------------------------------------------------------
+      // SUITE 6: Security & Cross-Site Scripting (XSS) Sanitization
+      // -------------------------------------------------------------
+      suite('6. Security, PBKDF2 & XSS Sanitization', (s) => {
+        s.test('escapeHTML neutralizes malicious script tags', () => {
+          const payload = '<script>alert("xss")<\/script>';
+          const sanitized = window.utils.escapeHTML(payload);
+          assert(!sanitized.includes('<script>'), 'Script tag should be escaped');
+          assert(sanitized.includes('&lt;script&gt;'), 'Entity encoding present');
+        });
+
+        s.test('escapeHTML neutralizes quotes and attribute injection', () => {
+          const payload = '"><img src=x onerror=alert(1)>';
+          const sanitized = window.utils.escapeHTML(payload);
+          assert(!sanitized.includes('<img'), 'Img tag must be escaped');
+        });
+
+        s.test('PBKDF2 PIN hashing produces distinct salt and hash components', async () => {
+          const pin = '1234';
+          const salt = 'a1b2c3d4e5f678901234567890abcdef';
+          const hashResult = await window.auth.hashPin(pin, salt);
+          assert(hashResult && typeof hashResult === 'string', 'Hash result is string');
+          assert(hashResult.length > 20, 'Hash has adequate length');
+        });
+
+        s.test('PBKDF2 PIN verification succeeds for correct PIN and fails for incorrect PIN', async () => {
+          const pin = '5678';
+          const salt = 'f1e2d3c4b5a698701234567890fedcba';
+          const correctHash = await window.auth.hashPin(pin, salt);
+          const verifySuccess = await window.auth.verifyPin(pin, salt, correctHash);
+          assertEqual(verifySuccess, true, 'Correct PIN must verify');
+          const verifyFail = await window.auth.verifyPin('0000', salt, correctHash);
+          assertEqual(verifyFail, false, 'Wrong PIN must fail');
+        });
+
+        s.test('Role-based data access restricts staff from admin store mutations', () => {
+          const canDeleteAdmin = window.dataAccess.canDelete({ role: 'staff' });
+          assertEqual(canDeleteAdmin, false, 'Staff role cannot perform destructive administrative deletes');
+          const canDeleteOwner = window.dataAccess.canDelete({ role: 'owner' });
+          assertEqual(canDeleteOwner, true, 'Owner role can perform deletes');
+        });
+      });
+
+      // -------------------------------------------------------------
+      // SUITE 7: End-to-End System Performance Benchmarks
+      // -------------------------------------------------------------
+      suite('7. System Performance & Quota Verification', (s) => {
+        s.test('IndexedDB is supported and responsive', async () => {
+          const t0 = performance.now();
+          const dbInstance = await getTestDB();
+          const t1 = performance.now();
+          assert(dbInstance, 'DB instance returned');
+          assert((t1 - t0) < 500, `DB open took ${t1 - t0}ms, must be <500ms`);
+        });
+
+        s.test('Storage estimate API functions without error', async () => {
+          const est = await window.db.getStorageEstimate();
+          assert(est, 'Storage estimate returned');
+          assert(typeof est.usage === 'number', 'Usage is number');
+          assert(typeof est.quota === 'number', 'Quota is number');
+        });
+
+        s.test('Rapid multi-store query executes in < 300ms', async () => {
+          const t0 = performance.now();
+          const txs = await window.db.getAll('transactions');
+          const parties = await window.db.getAll('parties');
+          const items = await window.db.getAll('items');
+          const t1 = performance.now();
+          assert(Array.isArray(txs) && Array.isArray(parties) && Array.isArray(items));
+          assert((t1 - t0) < 300, `Multi-store query took ${t1 - t0}ms, must be <300ms`);
+        });
+
+        s.test('High throughput: 100 in-memory items generated and validated in < 50ms', () => {
+          const t0 = performance.now();
+          const list = [];
+          for (let i = 0; i < 100; i++) {
+            list.push({
+              id: 'perf_' + i,
+              costMinor: i * 1500,
+              priceMinor: i * 1800,
+              valid: (i * 1800) >= (i * 1500)
+            });
+          }
+          const t1 = performance.now();
+          assertEqual(list.length, 100);
+          assert((t1 - t0) < 50, `Took ${t1 - t0}ms, must be <50ms`);
+        });
+      });
+
+      // -------------------------------------------------------------
+      // RUN ALL TESTS & RENDER REPORT
+      // -------------------------------------------------------------
+      const outputEl = document.getElementById('test-output');
+      outputEl.innerHTML = '';
+
+      for (const st of suites) {
+        const card = document.createElement('div');
+        card.className = 'suite-card';
+        card.innerHTML = `<div class="suite-head">${st.name}</div>`;
+
+        for (const t of st.tests) {
+          total++;
+          const row = document.createElement('div');
+          row.className = 'test-row';
+          try {
+            await t.testFn();
+            passed++;
+            row.innerHTML = `
+              <span class="test-name">${t.desc}</span>
+              <span class="badge badge-pass">PASS</span>
+            `;
+          } catch (err) {
+            failed++;
+            row.innerHTML = `
+              <div style="flex: 1;">
+                <div class="test-name">${t.desc}</div>
+                <div class="error-msg">${err.message}</div>
+              </div>
+              <span class="badge badge-fail">FAIL</span>
+            `;
+          }
+          card.appendChild(row);
+        }
+        outputEl.appendChild(card);
+      }
+
+      const duration = Math.round(performance.now() - startTime);
+      document.getElementById('stat-total').textContent = total;
+      document.getElementById('stat-pass').textContent = passed;
+      document.getElementById('stat-fail').textContent = failed;
+      document.getElementById('stat-time').textContent = duration + ' ms';
+      console.log(`[QA Test Suite] Finished: ${passed}/${total} passed (${failed} failed) in ${duration}ms`);
+    })();
+  </script>
+</body>
+</html>

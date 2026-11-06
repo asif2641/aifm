@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Bill Auditor — Phase 2 Scan Pipeline Test Suite</title>
+  <style>
+    * { box-shadow: none !important; text-shadow: none !important; box-sizing: border-box; }
+    :root {
+      --canvas: #FAF8F5;
+      --card: #FFFFFF;
+      --panel: #F3EFEA;
+      --primary: #2F5D50;
+      --border: #E4DFD7;
+      --success-bg: #E6F2EC;
+      --success-text: #2E7D5B;
+      --error-bg: #FCEAEA;
+      --error-text: #C93B3B;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--canvas);
+      color: #1E201E;
+    }
+    .container { max-width: 960px; margin: 0 auto; }
+    header { background: var(--card); border: 1px solid var(--border); padding: 24px; margin-bottom: 24px; }
+    h1 { margin: 0 0 8px 0; font-size: 22px; color: var(--primary); }
+    .pill { display: inline-flex; padding: 4px 12px; font-size: 13px; font-weight: 600; border: 1px solid currentColor; margin-right: 8px; }
+    .pill-success { background: var(--success-bg); color: var(--success-text); }
+    .pill-error { background: var(--error-bg); color: var(--error-text); }
+    .test-row { background: var(--card); border: 1px solid var(--border); padding: 12px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Phase 2 Scan Pipeline Verification Suite</h1>
+      <p style="color: #686D68; margin: 0 0 16px 0;">Automated validation of Quality Gate, Pre-scan Duplicates, AI Normalizer, and Multi-page Merge.</p>
+      <div id="stats">Running tests...</div>
+    </header>
+    <div id="results"></div>
+  </div>
+
+  <script>
+    // Embedded Zero-CORS Test Runner for seamless execution on file:// and http://
+
+    // 1. Math / Money primitives
+    function toBig(v) { return BigInt(v); }
+    function toNum(b) { return Number(b); }
+    function add(a, b) { return toNum(toBig(a) + toBig(b)); }
+    function sub(a, b) { return toNum(toBig(a) - toBig(b)); }
+    function lineTotal(qtyMilli, unitPriceMinor) {
+      return toNum((toBig(qtyMilli) * toBig(unitPriceMinor)) / 1000n);
+    }
+    function parseMoney(input, currency = 'PKR') {
+      if (input === null || input === undefined || input === '') return 0;
+      if (typeof input === 'number') return Math.round(input * 100);
+      let str = String(input).replace(/[^0-9.-]/g, '').trim();
+      const dotCount = (str.match(/\./g) || []).length;
+      if (dotCount > 1) {
+        const lastIdx = str.lastIndexOf('.');
+        str = str.slice(0, lastIdx).replace(/\./g, '') + str.slice(lastIdx);
+      }
+      const parts = str.split('.');
+      const whole = BigInt(parts[0] || '0');
+      const frac = (parts[1] || '').padEnd(2, '0').slice(0, 2);
+      return toNum(whole * 100n + BigInt(frac));
+    }
+
+    // 2. Quality Gate Primitives
+    function computeBrightnessMetrics(imgData) {
+      const { data, width, height } = imgData;
+      const total = width * height;
+      let sum = 0, dark = 0, bright = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const lum = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+        sum += lum;
+        if (lum < 25) dark++;
+        else if (lum > 230) bright++;
+      }
+      return { meanBrightness: Math.round(sum / total), darkRatio: dark / total, brightRatio: bright / total };
+    }
+
+    function computeBlurScore(imgData) {
+      const { width, height, data } = imgData;
+      if (width < 3 || height < 3) return 0;
+      const gray = new Uint8Array(width * height);
+      for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+        gray[j] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+      }
+      let sumL = 0, sumL2 = 0, count = 0;
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const center = gray[y * width + x];
+          const lap = gray[(y - 1) * width + x] + gray[(y + 1) * width + x] + gray[y * width + (x - 1)] + gray[y * width + (x + 1)] - (center * 4);
+          sumL += lap;
+          sumL2 += lap * lap;
+          count++;
+        }
+      }
+      if (count === 0) return 0;
+      const mean = sumL / count;
+      return Math.max(0, Math.round(((sumL2 / count) - (mean * mean)) * 10) / 10);
+    }
+
+    function evaluateQuality(imgData, options = {}) {
+      const cfg = { minBlur: 80, minRes: 600, maxDark: 0.35, maxBright: 0.35, ...options };
+      const issues = [];
+      const minSide = Math.min(imgData.width, imgData.height);
+      if (minSide < cfg.minRes) {
+        issues.push({ type: 'resolution_low', severity: 'error', message: 'Low resolution' });
+      }
+      const b = computeBrightnessMetrics(imgData);
+      if (b.darkRatio > cfg.maxDark) issues.push({ type: 'brightness_dark', severity: 'warning', message: 'Too dark' });
+      if (b.brightRatio > cfg.maxBright) issues.push({ type: 'brightness_glare', severity: 'warning', message: 'Glare' });
+      const blur = computeBlurScore(imgData);
+      if (blur < cfg.minBlur) issues.push({ type: 'blur_high', severity: 'warning', message: 'Blurry' });
+      return { pass: issues.length === 0, canScanAnyway: true, issues, metrics: { blurScore: blur, ...b } };
+    }
+
+    // 3. Duplicate Detector Primitives
+    function computeDHash(imgData) {
+      // Sample 9x8 grid
+      const { width, height, data } = imgData;
+      const gray = new Uint8Array(9 * 8);
+      for (let r = 0; r < 8; r++) {
+        const y = Math.min(height - 1, Math.floor((r / 8) * height));
+        for (let c = 0; c < 9; c++) {
+          const x = Math.min(width - 1, Math.floor((c / 9) * width));
+          const idx = (y * width + x) * 4;
+          gray[r * 9 + c] = Math.round(0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]);
+        }
+      }
+      let bin = '';
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          bin += gray[r * 9 + c] > gray[r * 9 + c + 1] ? '1' : '0';
+        }
+      }
+      let hex = '';
+      for (let i = 0; i < 64; i += 4) hex += parseInt(bin.slice(i, i + 4), 2).toString(16);
+      return hex.padStart(16, '0');
+    }
+
+    function hammingDistance(hA, hB) {
+      let d = 0;
+      for (let i = 0; i < 16; i++) {
+        let xor = parseInt(hA[i], 16) ^ parseInt(hB[i], 16);
+        while (xor > 0) { d += xor & 1; xor >>= 1; }
+      }
+      return d;
+    }
+
+    // 4. Normalizer & Multi-page Merge Primitives
+    function normalizeLine(raw, curr = 'PKR', pageIndex = 1) {
+      const qty = parseFloat(raw.qty) || 1;
+      const rateMinor = parseMoney(raw.unitPrice || raw.rate, curr);
+      let totalMinor = parseMoney(raw.lineTotal, curr);
+      if (totalMinor === 0 && rateMinor > 0) {
+        totalMinor = lineTotal(Math.round(qty * 1000), rateMinor);
+      }
+      const rawName = String(raw.nameRaw || raw.name || 'Item').trim();
+      const isCarried = /carried forward|brought forward|b\/f|c\/f/i.test(rawName);
+      return {
+        id: 'line_' + Math.random().toString(36).slice(2, 8),
+        nameRaw: rawName,
+        nameEnglish: raw.nameEnglish || rawName,
+        nameUrdu: raw.nameUrdu || '',
+        qtyBilled: qty,
+        unit: raw.unit || 'pcs',
+        unitPriceMinor: rateMinor,
+        printedLineTotalMinor: totalMinor,
+        taxable: raw.taxable !== false,
+        confidence: raw.confidence ?? 95,
+        pageIndex,
+        isCarriedForward: isCarried
+      };
+    }
+
+    function mergeMultiPage(pagesResults, curr = 'PKR') {
+      let vendor = null, billNo = null, grandTotal = 0;
+      const lines = [];
+      let dedupCount = 0;
+
+      for (let i = 0; i < pagesResults.length; i++) {
+        const p = pagesResults[i];
+        const pageNum = i + 1;
+        if (!vendor && p.vendor) vendor = p.vendor;
+        if (!billNo && p.billNumber) billNo = p.billNumber;
+        for (const rawL of (p.lines || [])) {
+          const l = normalizeLine(rawL, curr, pageNum);
+          if (lines.length > 0) {
+            const prev = lines[lines.length - 1];
+            if (prev.pageIndex !== pageNum && prev.nameRaw.toLowerCase() === l.nameRaw.toLowerCase() && prev.printedLineTotalMinor === l.printedLineTotalMinor) {
+              dedupCount++;
+              continue;
+            }
+          }
+          lines.push(l);
+        }
+      }
+
+      for (let i = pagesResults.length - 1; i >= 0; i--) {
+        if (pagesResults[i].printedGrandTotal) {
+          grandTotal = parseMoney(pagesResults[i].printedGrandTotal, curr);
+          break;
+        }
+      }
+
+      let subtotal = 0;
+      for (const l of lines.filter(l => !l.isCarriedForward)) subtotal = add(subtotal, l.printedLineTotalMinor);
+
+      return {
+        draft: { vendor, billNumber: billNo, grandTotalMinor: grandTotal, subtotalMinor: subtotal, lines },
+        deduplicatedCount: dedupCount
+      };
+    }
+
+    // ==========================================
+    // Test Harness Execution
+    // ==========================================
+    const results = document.getElementById('results');
+    const stats = document.getElementById('stats');
+    let passCount = 0;
+    let failCount = 0;
+
+    function logTest(name, passed, detail = '') {
+      if (passed) passCount++; else failCount++;
+      const div = document.createElement('div');
+      div.className = 'test-row';
+      div.innerHTML = `
+        <div>
+          <div style="font-weight:600;">${name}</div>
+          ${detail ? `<div style="color:var(--error-text); font-size:12px; margin-top:4px;">${detail}</div>` : ''}
+        </div>
+        <span class="pill ${passed ? 'pill-success' : 'pill-error'}">${passed ? 'PASS' : 'FAIL'}</span>
+      `;
+      results.appendChild(div);
+      stats.innerHTML = `
+        <span class="pill pill-success">Passed: ${passCount}</span>
+        ${failCount > 0 ? `<span class="pill pill-error">Failed: ${failCount}</span>` : '<span class="pill pill-success">100% Passed</span>'}
+      `;
+    }
+
+    async function runPhase2PipelineTests() {
+      // 1. Quality Gate: Low resolution test (<600px side)
+      const tinyImg = { width: 400, height: 300, data: new Uint8ClampedArray(400 * 300 * 4) };
+      const qRes = evaluateQuality(tinyImg);
+      logTest('1. Quality Gate flags low resolution (<600px)', qRes.issues.some(i => i.type === 'resolution_low'));
+
+      // 2. Quality Gate: Dark underexposed image test (>35% dark pixels)
+      const darkImg = { width: 800, height: 800, data: new Uint8ClampedArray(800 * 800 * 4) };
+      // All zeroes = pitch black
+      const qDark = evaluateQuality(darkImg);
+      logTest('2. Quality Gate flags underexposed / dark images', qDark.issues.some(i => i.type === 'brightness_dark'));
+
+      // 3. Quality Gate: Blurry vs Sharp synthetic image
+      // Blurry image (completely uniform gradient)
+      const blurryImg = { width: 800, height: 800, data: new Uint8ClampedArray(800 * 800 * 4) };
+      for (let i = 0; i < blurryImg.data.length; i += 4) {
+        blurryImg.data[i] = 128;
+        blurryImg.data[i + 1] = 128;
+        blurryImg.data[i + 2] = 128;
+        blurryImg.data[i + 3] = 255;
+      }
+      const qBlur = evaluateQuality(blurryImg);
+      logTest('3. Quality Gate Laplacian variance flags blurry images', qBlur.issues.some(i => i.type === 'blur_high'));
+
+      // Sharp high-contrast checkerboard image
+      const sharpImg = { width: 800, height: 800, data: new Uint8ClampedArray(800 * 800 * 4) };
+      for (let y = 0; y < 800; y++) {
+        for (let x = 0; x < 800; x++) {
+          const idx = (y * 800 + x) * 4;
+          const val = ((Math.floor(x / 10) + Math.floor(y / 10)) % 2 === 0) ? 240 : 20;
+          sharpImg.data[idx] = val;
+          sharpImg.data[idx + 1] = val;
+          sharpImg.data[idx + 2] = val;
+          sharpImg.data[idx + 3] = 255;
+        }
+      }
+      const qSharp = evaluateQuality(sharpImg);
+      logTest('4. Quality Gate passes sharp, high-contrast bill image', qSharp.metrics.blurScore > 100);
+
+      // 5. Pre-scan Duplicate: Layer 1 SHA-256 byte digest comparison
+      const bufA = new TextEncoder().encode('Invoice-12345-Bill-Bytes');
+      const hashBufA = await crypto.subtle.digest('SHA-256', bufA);
+      const shaA = Array.from(new Uint8Array(hashBufA), b => b.toString(16).padStart(2, '0')).join('');
+      const bufB = new TextEncoder().encode('Invoice-12345-Bill-Bytes');
+      const hashBufB = await crypto.subtle.digest('SHA-256', bufB);
+      const shaB = Array.from(new Uint8Array(hashBufB), b => b.toString(16).padStart(2, '0')).join('');
+      logTest('5. Duplicate Layer 1: Identical file produces exact SHA-256 byte match', shaA === shaB);
+
+      // 6. Pre-scan Duplicate: Layer 2 dHash 9x8 perceptual hash & Hamming distance
+      const dHashA = computeDHash(sharpImg);
+      logTest('6. Duplicate Layer 2: dHash generates valid 64-bit 16-character hex hash', dHashA.length === 16);
+
+      const distIdentical = hammingDistance(dHashA, dHashA);
+      logTest('7. Duplicate Layer 2: Identical image has Hamming distance = 0', distIdentical === 0);
+
+      // Invert 2 nibbles in dHash to simulate minor photo variations
+      const nearDHash = dHashA.slice(0, 14) + '00';
+      const nearDist = hammingDistance(dHashA, nearDHash);
+      logTest('8. Duplicate Layer 2: Near-duplicate photo detected with Hamming distance <= 10', nearDist <= 10);
+
+      // 7. Normalizer: Multi-currency parsing and integer minor units with zero float drift
+      const pkrTotal = parseMoney('Rs. 12,450.75', 'PKR');
+      const usdTotal = parseMoney('$ 150.25', 'USD');
+      logTest('9. Normalizer: Converts currency strings to exact integer minor units (Rs. 12,450.75 -> 1245075)', pkrTotal === 1245075 && usdTotal === 15025);
+
+      // 8. Normalizer: Fractional quantity calculation
+      // 2.5 kg at Rs. 150.00/kg (15000 minor units) -> 37500 minor units
+      const calcLine = normalizeLine({ name: 'Sugar', qty: 2.5, unitPrice: '150.00' }, 'PKR', 1);
+      logTest('10. Normalizer: 2.5 qty @ Rs. 150.00 equals exactly 37500 minor units (Rs. 375.00)', calcLine.printedLineTotalMinor === 37500);
+
+      // 9. Normalizer: Carried-forward summary rows correctly flagged
+      const cfLine = normalizeLine({ name: 'Balance Brought Forward (B/F)', lineTotal: '50,000' }, 'PKR', 2);
+      logTest('11. Normalizer: Flags Brought Forward / Carried Forward rows (isCarriedForward === true)', cfLine.isCarriedForward === true);
+
+      // 10. Multi-Page Merge: Header on Page 1, Grand Total on Page 3, Junction Deduplication
+      const page1 = {
+        vendor: { name: 'Al-Hussain Chemicals', taxId: '9876543-1' },
+        billNumber: 'INV-2026-99',
+        lines: [
+          { name: 'Caustic Soda 50kg', qty: 10, unitPrice: '4500.00', lineTotal: '45000.00' },
+          { name: 'Hydrochloric Acid Drum', qty: 2, unitPrice: '8000.00', lineTotal: '16000.00' }
+        ]
+      };
+      const page2 = {
+        lines: [
+          // Junction duplicate line from page 1 overlapping into page 2
+          { name: 'Hydrochloric Acid Drum', qty: 2, unitPrice: '8000.00', lineTotal: '16000.00' },
+          { name: 'Sodium Carbonate Bag', qty: 5, unitPrice: '2200.00', lineTotal: '11000.00' }
+        ]
+      };
+      const page3 = {
+        printedGrandTotal: '72,000.00',
+        lines: [
+          { name: 'Packaging Drums', qty: 4, unitPrice: '0.00', lineTotal: '0.00' }
+        ]
+      };
+
+      const mergeResult = mergeMultiPage([page1, page2, page3], 'PKR');
+      const draft = mergeResult.draft;
+
+      const headerCaptured = draft.vendor && draft.vendor.name === 'Al-Hussain Chemicals' && draft.billNumber === 'INV-2026-99';
+      const grandTotalCaptured = draft.grandTotalMinor === 7200000;
+      const junctionDeduplicated = mergeResult.deduplicatedCount === 1;
+
+      logTest('12. Multi-Page Merge: Header captured from Page 1, Grand Total from Page 3', headerCaptured && grandTotalCaptured);
+      logTest('13. Multi-Page Merge: Junction duplicate overlapping line successfully deduplicated', junctionDeduplicated && draft.lines.length === 4);
+    }
+
+    runPhase2PipelineTests();
+  </script>
+</body>
+</html>

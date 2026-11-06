@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Bill Auditor — money.js Test Suite</title>
+  <style>
+    * {
+      box-shadow: none !important;
+      text-shadow: none !important;
+      box-sizing: border-box;
+    }
+    :root {
+      --canvas: #FAF8F5;
+      --card: #FFFFFF;
+      --panel: #F3EFEA;
+      --primary: #2F5D50;
+      --secondary: #D97762;
+      --text: #1E201E;
+      --muted: #686D68;
+      --border: #E4DFD7;
+      --success-bg: #E6F2EC;
+      --success-text: #2E7D5B;
+      --error-bg: #FCEAEA;
+      --error-text: #C93B3B;
+      --warning-bg: #FDF3E3;
+      --warning-text: #B86B14;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--canvas);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    header {
+      background-color: var(--card);
+      border: 1px solid var(--border);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 24px;
+      color: var(--primary);
+    }
+    .stats-bar {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid currentColor;
+    }
+    .pill-success { background-color: var(--success-bg); color: var(--success-text); }
+    .pill-error { background-color: var(--error-bg); color: var(--error-text); }
+    .pill-info { background-color: var(--panel); color: var(--primary); }
+
+    .test-group {
+      background-color: var(--card);
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .group-header {
+      background-color: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      font-weight: 600;
+      font-size: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .test-row {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+    .test-row:last-child {
+      border-bottom: none;
+    }
+    .test-desc {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: var(--text);
+    }
+    .test-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      font-weight: 700;
+      border: 1px solid currentColor;
+    }
+    .badge-pass { background-color: var(--success-bg); color: var(--success-text); }
+    .badge-fail { background-color: var(--error-bg); color: var(--error-text); }
+    .fail-detail {
+      color: var(--error-text);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Money Engine Test Suite (`js/core/money.js`)</h1>
+      <p style="margin:0; color: var(--muted); font-size: 14px;">
+        Verifying arbitrary-precision integer arithmetic, rounding, allocations, and multi-currency parsing.
+      </p>
+      <div class="stats-bar" id="stats">
+        <span class="pill pill-info" id="stat-total">Running tests...</span>
+      </div>
+    </header>
+
+    <div id="results"></div>
+  </div>
+
+  <script>
+    // Embedded Money Engine to guarantee instant zero-CORS execution on file:// and http://
+    const CURRENCY_CONFIG = {
+      PKR: { name: 'Pakistani Rupee', minorUnits: 2, symbol: 'Rs.', subUnit: 'Paisa' },
+      INR: { name: 'Indian Rupee', minorUnits: 2, symbol: '₹', subUnit: 'Paisa' },
+      USD: { name: 'US Dollar', minorUnits: 2, symbol: '$', subUnit: 'Cent' },
+      EUR: { name: 'Euro', minorUnits: 2, symbol: '€', subUnit: 'Cent' },
+      GBP: { name: 'British Pound', minorUnits: 2, symbol: '£', subUnit: 'Penny' },
+      AED: { name: 'UAE Dirham', minorUnits: 2, symbol: 'AED', subUnit: 'Fils' },
+      SAR: { name: 'Saudi Riyal', minorUnits: 2, symbol: 'SAR', subUnit: 'Halala' },
+      CAD: { name: 'Canadian Dollar', minorUnits: 2, symbol: 'CA$', subUnit: 'Cent' },
+      AUD: { name: 'Australian Dollar', minorUnits: 2, symbol: 'AU$', subUnit: 'Cent' },
+      JPY: { name: 'Japanese Yen', minorUnits: 0, symbol: '¥', subUnit: '' },
+      KWD: { name: 'Kuwaiti Dinar', minorUnits: 3, symbol: 'KD', subUnit: 'Fils' }
+    };
+
+    function toBig(val) {
+      if (typeof val === 'bigint') return val;
+      if (typeof val === 'number') {
+        if (!Number.isFinite(val)) throw new TypeError(`Cannot convert non-finite number ${val} to BigInt`);
+        if (!Number.isSafeInteger(val)) throw new RangeError(`Unsafe integer ${val} cannot be converted safely`);
+        return BigInt(val);
+      }
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (!/^-?\d+$/.test(trimmed)) throw new TypeError(`Invalid integer string: "${val}"`);
+        return BigInt(trimmed);
+      }
+      throw new TypeError(`Unsupported type for BigInt conversion: ${typeof val}`);
+    }
+
+    function toNum(b) {
+      if (b > BigInt(Number.MAX_SAFE_INTEGER) || b < BigInt(Number.MIN_SAFE_INTEGER)) {
+        throw new RangeError(`BigInt value ${b} exceeds JavaScript safe integer range`);
+      }
+      return Number(b);
+    }
+
+    function roundHalfUpDiv(numerator, divisor) {
+      if (divisor === 0n) throw new RangeError('Division by zero');
+      if (divisor < 0n) {
+        numerator = -numerator;
+        divisor = -divisor;
+      }
+      const isNegative = numerator < 0n;
+      const absNum = isNegative ? -numerator : numerator;
+      const half = divisor / 2n;
+      const result = (absNum + half) / divisor;
+      return isNegative ? -result : result;
+    }
+
+    function parseMoney(input, currencyCode = 'PKR') {
+      if (input === null || input === undefined || input === '') return 0;
+      const cfg = CURRENCY_CONFIG[currencyCode] || CURRENCY_CONFIG.PKR;
+      const decimals = cfg.minorUnits;
+
+      if (typeof input === 'number') {
+        if (!Number.isFinite(input)) throw new TypeError('Non-finite number provided to parseMoney');
+        input = input.toFixed(decimals + 2);
+      }
+
+      let str = String(input).trim();
+      if (str === '') return 0;
+
+      const isNegative = str.startsWith('-') || /^\(.*\)$/.test(str);
+
+      // Check if string contains any digits at all
+      if (!/\d/.test(str)) {
+        throw new TypeError(`Invalid non-numeric money string: "${input}"`);
+      }
+
+      // Remove currency words, codes and symbols like "Rs.", "PKR", "USD", "$", "€", "(", ")"
+      str = str.replace(/[a-zA-Z()]/g, '').trim();
+
+      // Remove commas used as thousand separators (e.g., 1,500.50 -> 1500.50)
+      str = str.replace(/,/g, '');
+
+      // Strip any characters other than digits and '.'
+      let clean = str.replace(/[^0-9.]/g, '');
+
+      // Handle multiple dots if any (e.g. from an abbreviation dot like in "Rs.")
+      const dotCount = (clean.match(/\./g) || []).length;
+      if (dotCount > 1) {
+        const lastDotIdx = clean.lastIndexOf('.');
+        clean = clean.slice(0, lastDotIdx).replace(/\./g, '') + clean.slice(lastDotIdx);
+      }
+
+      if (clean === '' || clean === '.') return 0;
+
+      const parts = clean.split('.');
+      if (parts.length > 2) throw new TypeError(`Malformed money string: ${input}`);
+
+      let wholePart = parts[0] || '0';
+      let fracPart = parts[1] || '';
+
+      if (decimals === 0) {
+        const minorBig = BigInt(wholePart);
+        return toNum(isNegative ? -minorBig : minorBig);
+      }
+
+      if (fracPart.length > decimals) {
+        const kept = fracPart.slice(0, decimals);
+        const extra = fracPart.slice(decimals);
+        let roundNum = BigInt(wholePart + kept);
+        const firstExtra = parseInt(extra[0], 10);
+        if (firstExtra >= 5) {
+          roundNum += 1n;
+        }
+        return toNum(isNegative ? -roundNum : roundNum);
+      } else {
+        fracPart = fracPart.padEnd(decimals, '0');
+        const minorBig = BigInt(wholePart + fracPart);
+        return toNum(isNegative ? -minorBig : minorBig);
+      }
+    }
+
+    function formatMoney(minorUnits, currencyCode = 'PKR', options = {}) {
+      const { showSymbol = true, useIndianSystem = false, showCode = false } = options;
+      const cfg = CURRENCY_CONFIG[currencyCode] || { name: currencyCode, minorUnits: 2, symbol: currencyCode };
+      const minorBig = toBig(minorUnits);
+      const isNegative = minorBig < 0n;
+      const absMinor = isNegative ? -minorBig : minorBig;
+      const decimals = cfg.minorUnits;
+
+      let wholeStr = '';
+      let fracStr = '';
+
+      if (decimals === 0) {
+        wholeStr = absMinor.toString();
+      } else {
+        const divisor = 10n ** BigInt(decimals);
+        const whole = absMinor / divisor;
+        const frac = absMinor % divisor;
+        wholeStr = whole.toString();
+        fracStr = '.' + frac.toString().padStart(decimals, '0');
+      }
+
+      let formattedWhole = '';
+      if (useIndianSystem || currencyCode === 'PKR' || currencyCode === 'INR') {
+        if (wholeStr.length <= 3) {
+          formattedWhole = wholeStr;
+        } else {
+          const last3 = wholeStr.slice(-3);
+          const rest = wholeStr.slice(0, -3);
+          const groupedRest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+          formattedWhole = groupedRest + ',' + last3;
+        }
+      } else {
+        formattedWhole = wholeStr.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      }
+
+      const sign = isNegative ? '-' : '';
+      const needsSpace = !['$', '€', '£'].includes(cfg.symbol);
+      const symbol = showSymbol ? (cfg.symbol + (needsSpace ? ' ' : '')) : '';
+      const code = showCode ? ` ${currencyCode}` : '';
+
+      return `${sign}${symbol}${formattedWhole}${fracStr}${code}`.trim();
+    }
+
+    function add(aMinor, bMinor) {
+      return toNum(toBig(aMinor) + toBig(bMinor));
+    }
+
+    function sub(aMinor, bMinor) {
+      return toNum(toBig(aMinor) - toBig(bMinor));
+    }
+
+    function sum(arrMinor) {
+      if (!Array.isArray(arrMinor)) throw new TypeError('Expected array of numbers for sum');
+      let total = 0n;
+      for (let i = 0; i < arrMinor.length; i++) {
+        total += toBig(arrMinor[i]);
+      }
+      return toNum(total);
+    }
+
+    function negate(minor) {
+      return toNum(-toBig(minor));
+    }
+
+    function lineTotal(qtyMilli, unitPriceMinor) {
+      const num = toBig(qtyMilli) * toBig(unitPriceMinor);
+      return toNum(roundHalfUpDiv(num, 1000n));
+    }
+
+    function percentOf(baseMinor, rateBp) {
+      const num = toBig(baseMinor) * toBig(rateBp);
+      return toNum(roundHalfUpDiv(num, 10000n));
+    }
+
+    function taxFromExclusive(subtotalMinor, taxRateBp) {
+      return percentOf(subtotalMinor, taxRateBp);
+    }
+
+    function taxFromInclusive(grossMinor, taxRateBp) {
+      const bGross = toBig(grossMinor);
+      const bRate = toBig(taxRateBp);
+      const divisor = 10000n + bRate;
+      if (divisor === 0n) return 0;
+      return toNum(roundHalfUpDiv(bGross * bRate, divisor));
+    }
+
+    function applyDiscount(subtotalMinor, discountVal, type = 'fixed') {
+      const bSub = toBig(subtotalMinor);
+      let bDisc = 0n;
+      if (type === 'percentage') {
+        bDisc = toBig(percentOf(bSub, discountVal));
+      } else {
+        bDisc = toBig(discountVal);
+      }
+      if (bDisc < 0n) bDisc = 0n;
+      if (bDisc > bSub) bDisc = bSub;
+
+      return {
+        discountMinor: toNum(bDisc),
+        netMinor: toNum(bSub - bDisc)
+      };
+    }
+
+    function invoiceTotals(lines = [], options = {}) {
+      const { discountVal = 0, discountType = 'fixed', taxInclusive = false, freightMinor = 0 } = options;
+
+      let computedLines = [];
+      let subtotalMinor = 0n;
+      let taxableSubtotalMinor = 0n;
+
+      for (const line of lines) {
+        const lTotal = toBig(lineTotal(line.qtyMilli, line.unitPriceMinor));
+        computedLines.push({
+          ...line,
+          lineTotalMinor: toNum(lTotal)
+        });
+        subtotalMinor += lTotal;
+        if (line.taxable !== false) {
+          taxableSubtotalMinor += lTotal;
+        }
+      }
+
+      let invoiceDiscountMinor = 0n;
+      if (discountType === 'percentage') {
+        invoiceDiscountMinor = toBig(percentOf(subtotalMinor, discountVal));
+      } else {
+        invoiceDiscountMinor = toBig(discountVal);
+      }
+      if (invoiceDiscountMinor > subtotalMinor) invoiceDiscountMinor = subtotalMinor;
+      if (invoiceDiscountMinor < 0n) invoiceDiscountMinor = 0n;
+
+      const netSubtotalMinor = subtotalMinor - invoiceDiscountMinor;
+
+      let taxMinor = 0n;
+      for (const line of lines) {
+        if (line.taxable === false || !line.taxRateBp) continue;
+        const lTotal = toBig(lineTotal(line.qtyMilli, line.unitPriceMinor));
+        let lNet = lTotal;
+        if (subtotalMinor > 0n && invoiceDiscountMinor > 0n) {
+          const lDisc = roundHalfUpDiv(lTotal * invoiceDiscountMinor, subtotalMinor);
+          lNet = lTotal - lDisc;
+        }
+
+        if (taxInclusive) {
+          taxMinor += toBig(taxFromInclusive(lNet, line.taxRateBp));
+        } else {
+          taxMinor += toBig(taxFromExclusive(lNet, line.taxRateBp));
+        }
+      }
+
+      const bFreight = toBig(freightMinor);
+      let grandTotalMinor = 0n;
+
+      if (taxInclusive) {
+        grandTotalMinor = netSubtotalMinor + bFreight;
+      } else {
+        grandTotalMinor = netSubtotalMinor + taxMinor + bFreight;
+      }
+
+      return {
+        lines: computedLines,
+        subtotalMinor: toNum(subtotalMinor),
+        discountMinor: toNum(invoiceDiscountMinor),
+        netSubtotalMinor: toNum(netSubtotalMinor),
+        taxMinor: toNum(taxMinor),
+        freightMinor: toNum(bFreight),
+        grandTotalMinor: toNum(grandTotalMinor),
+        taxInclusive
+      };
+    }
+
+    function splitEvenly(totalMinor, partsCount) {
+      if (!Number.isInteger(partsCount) || partsCount <= 0) {
+        throw new RangeError(`partsCount must be a positive integer, got ${partsCount}`);
+      }
+      const total = toBig(totalMinor);
+      const count = BigInt(partsCount);
+      const base = total / count;
+      const remainder = total % count;
+
+      const result = [];
+      const absRem = remainder < 0n ? -remainder : remainder;
+      const remSign = total < 0n ? -1n : 1n;
+
+      for (let i = 0n; i < count; i++) {
+        if (i < absRem) {
+          result.push(toNum(base + remSign));
+        } else {
+          result.push(toNum(base));
+        }
+      }
+      return result;
+    }
+
+    function allocate(totalMinor, ratios) {
+      if (!Array.isArray(ratios) || ratios.length === 0) return [];
+      const bTotal = toBig(totalMinor);
+      let sumRatios = 0n;
+      for (const r of ratios) {
+        const br = toBig(r);
+        if (br < 0n) throw new RangeError('Allocation ratio cannot be negative');
+        sumRatios += br;
+      }
+      if (sumRatios === 0n) {
+        return splitEvenly(totalMinor, ratios.length);
+      }
+
+      const parts = [];
+      const remainders = [];
+      let allocatedSum = 0n;
+
+      for (let i = 0; i < ratios.length; i++) {
+        const br = toBig(ratios[i]);
+        const numerator = bTotal * br;
+        const base = numerator / sumRatios;
+        const rem = numerator % sumRatios;
+        parts.push(base);
+        remainders.push({ index: i, rem: rem < 0n ? -rem : rem });
+        allocatedSum += base;
+      }
+
+      let shortfall = bTotal - allocatedSum;
+      remainders.sort((a, b) => (b.rem > a.rem ? 1 : b.rem < a.rem ? -1 : 0));
+
+      const step = shortfall > 0n ? 1n : -1n;
+      let idx = 0;
+      while (shortfall !== 0n && idx < remainders.length) {
+        const targetIdx = remainders[idx].index;
+        parts[targetIdx] += step;
+        shortfall -= step;
+        idx = (idx + 1) % remainders.length;
+      }
+
+      return parts.map(toNum);
+    }
+
+    function compareWithTolerance(amountA, amountB, toleranceMinor = 0) {
+      const bA = toBig(amountA);
+      const bB = toBig(amountB);
+      const bTol = toBig(toleranceMinor);
+      const diff = bA - bB;
+      const absDiff = diff < 0n ? -diff : diff;
+      return {
+        matches: absDiff <= bTol,
+        diff: toNum(diff)
+      };
+    }
+
+    const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+      'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+    function convertUnderThousand(num) {
+      let s = '';
+      if (num >= 100) {
+        s += ONES[Math.floor(num / 100)] + ' Hundred ';
+        num %= 100;
+      }
+      if (num >= 20) {
+        s += TENS[Math.floor(num / 10)] + (num % 10 !== 0 ? '-' + ONES[num % 10] : '');
+      } else if (num > 0) {
+        s += ONES[num];
+      }
+      return s.trim();
+    }
+
+    function amountInWords(minorUnits, currency = 'PKR', options = {}) {
+      const { system = 'indian' } = options;
+      const cfg = CURRENCY_CONFIG[currency] || CURRENCY_CONFIG.PKR;
+      const minorBig = toBig(minorUnits);
+
+      if (minorBig === 0n) {
+        return `Zero ${cfg.name}s Only`;
+      }
+
+      const isNegative = minorBig < 0n;
+      const absMinor = isNegative ? -minorBig : minorBig;
+      const decimals = cfg.minorUnits;
+
+      let wholePart = 0n;
+      let fracPart = 0n;
+
+      if (decimals === 0) {
+        wholePart = absMinor;
+      } else {
+        const div = 10n ** BigInt(decimals);
+        wholePart = absMinor / div;
+        fracPart = absMinor % div;
+      }
+
+      let words = '';
+
+      if (wholePart === 0n) {
+        words = 'Zero';
+      } else if (system === 'indian') {
+        let n = wholePart;
+        const arab = n / 1000000000n;
+        n %= 1000000000n;
+        const crore = n / 10000000n;
+        n %= 10000000n;
+        const lakh = n / 100000n;
+        n %= 100000n;
+        const thousand = n / 1000n;
+        n %= 1000n;
+        const remainder = Number(n);
+
+        let parts = [];
+        if (arab > 0n) parts.push(`${convertUnderThousand(Number(arab))} Arab`);
+        if (crore > 0n) parts.push(`${convertUnderThousand(Number(crore))} Crore`);
+        if (lakh > 0n) parts.push(`${convertUnderThousand(Number(lakh))} Lakh`);
+        if (thousand > 0n) parts.push(`${convertUnderThousand(Number(thousand))} Thousand`);
+        if (remainder > 0) parts.push(convertUnderThousand(remainder));
+
+        words = parts.join(' ');
+      } else {
+        let n = wholePart;
+        const billion = n / 1000000000n;
+        n %= 1000000000n;
+        const million = n / 1000000n;
+        n %= 1000000n;
+        const thousand = n / 1000n;
+        n %= 1000n;
+        const remainder = Number(n);
+
+        let parts = [];
+        if (billion > 0n) parts.push(`${convertUnderThousand(Number(billion))} Billion`);
+        if (million > 0n) parts.push(`${convertUnderThousand(Number(million))} Million`);
+        if (thousand > 0n) parts.push(`${convertUnderThousand(Number(thousand))} Thousand`);
+        if (remainder > 0) parts.push(convertUnderThousand(remainder));
+
+        words = parts.join(' ');
+      }
+
+      words = words.trim();
+      const majorName = wholePart === 1n ? cfg.name : `${cfg.name}s`;
+      let result = `${isNegative ? 'Minus ' : ''}${words} ${majorName}`;
+
+      if (fracPart > 0n && cfg.subUnit) {
+        const fracNum = Number(fracPart);
+        const fracWord = convertUnderThousand(fracNum);
+        const subName = fracNum === 1 ? cfg.subUnit : `${cfg.subUnit}s`;
+        result += ` and ${fracWord} ${subName}`;
+      }
+
+      return `${result} Only`.replace(/\s+/g, ' ');
+    }
+
+    const Money = {
+      CURRENCY_CONFIG,
+      parseMoney,
+      formatMoney,
+      add,
+      sub,
+      sum,
+      negate,
+      lineTotal,
+      percentOf,
+      taxFromExclusive,
+      taxFromInclusive,
+      applyDiscount,
+      invoiceTotals,
+      splitEvenly,
+      allocate,
+      compareWithTolerance,
+      amountInWords
+    };
+
+    // ==========================================
+    // Test Harness
+    // ==========================================
+    const testGroups = [];
+    let currentGroup = null;
+
+    function group(name) {
+      currentGroup = { name, tests: [] };
+      testGroups.push(currentGroup);
+    }
+
+    function test(description, fn) {
+      try {
+        fn();
+        currentGroup.tests.push({ description, pass: true });
+      } catch (err) {
+        currentGroup.tests.push({ description, pass: false, error: err.message });
+      }
+    }
+
+    function assertEqual(actual, expected, msg = '') {
+      if (actual !== expected) {
+        throw new Error(`${msg ? msg + ': ' : ''}Expected ${JSON.stringify(expected)} (${typeof expected}), got ${JSON.stringify(actual)} (${typeof actual})`);
+      }
+    }
+
+    function assertTrue(condition, msg = 'Assertion failed') {
+      if (!condition) throw new Error(msg);
+    }
+
+    // ==========================================
+    // 1. Binary Floating Point Pitfalls
+    // ==========================================
+    group('1. Floating Point Pitfalls (0.1 + 0.2 problem)');
+
+    test('0.10 + 0.20 minor units equals 0.30 exactly without float drift', () => {
+      const p1 = Money.parseMoney('0.10', 'USD');
+      const p2 = Money.parseMoney('0.20', 'USD');
+      const sum = Money.add(p1, p2);
+      assertEqual(sum, 30);
+      assertEqual(Money.formatMoney(sum, 'USD', { showSymbol: false }), '0.30');
+    });
+
+    test('0.7 + 0.1 problem in standard float', () => {
+      const p1 = Money.parseMoney('0.70', 'USD');
+      const p2 = Money.parseMoney('0.10', 'USD');
+      assertEqual(Money.add(p1, p2), 80);
+    });
+
+    test('String parsing with various formats and currency symbols', () => {
+      assertEqual(Money.parseMoney('Rs. 1,500.50', 'PKR'), 150050);
+      assertEqual(Money.parseMoney('$ 10.00', 'USD'), 1000);
+      assertEqual(Money.parseMoney(' - 45.20 ', 'EUR'), -4520);
+      assertEqual(Money.parseMoney('(25.00)', 'USD'), -2500);
+      assertEqual(Money.parseMoney('100', 'PKR'), 10000);
+      assertEqual(Money.parseMoney('', 'PKR'), 0);
+      assertEqual(Money.parseMoney(null, 'PKR'), 0);
+    });
+
+    // ==========================================
+    // 2. Exact Splits & Allocations
+    // ==========================================
+    group('2. Exact Splits & Hamilton Allocations');
+
+    test('Split 100 minor units evenly across 3 parts (sums to 100 exactly)', () => {
+      const parts = Money.splitEvenly(100, 3);
+      assertEqual(parts.length, 3);
+      assertEqual(parts.reduce((a, b) => a + b, 0), 100);
+      assertEqual(parts[0], 34);
+      assertEqual(parts[1], 33);
+      assertEqual(parts[2], 33);
+    });
+
+    test('Split 1000 minor units across 7 parts (sums to 1000 exactly)', () => {
+      const parts = Money.splitEvenly(1000, 7);
+      assertEqual(parts.length, 7);
+      assertEqual(parts.reduce((a, b) => a + b, 0), 1000);
+    });
+
+    test('Split negative amount (-100 across 3)', () => {
+      const parts = Money.splitEvenly(-100, 3);
+      assertEqual(parts.reduce((a, b) => a + b, 0), -100);
+    });
+
+    test('Allocate 100 minor units across weights [1, 1, 1]', () => {
+      const parts = Money.allocate(100, [1, 1, 1]);
+      assertEqual(parts.reduce((a, b) => a + b, 0), 100);
+      assertEqual(parts[0], 34);
+    });
+
+    test('Allocate 10000 minor units across weights [30, 20, 50]', () => {
+      const parts = Money.allocate(10000, [30, 20, 50]);
+      assertEqual(parts.reduce((a, b) => a + b, 0), 10000);
+      assertEqual(parts[0], 3000);
+      assertEqual(parts[1], 2000);
+      assertEqual(parts[2], 5000);
+    });
+
+    test('Allocate 1000 minor units across 7 unequal weights', () => {
+      const weights = [12, 19, 3, 27, 8, 14, 5];
+      const parts = Money.allocate(1000, weights);
+      assertEqual(parts.reduce((a, b) => a + b, 0), 1000);
+    });
+
+    // ==========================================
+    // 3. Tax & Rounding (Round Half Up)
+    // ==========================================
+    group('3. Tax Calculations & Round Half-Up');
+
+    test('15% tax (1500 bp) on odd amount (333 minor units)', () => {
+      const tax = Money.taxFromExclusive(333, 1500);
+      assertEqual(tax, 50);
+    });
+
+    test('5% tax (500 bp) on 10 minor units', () => {
+      const tax = Money.taxFromExclusive(10, 500);
+      assertEqual(tax, 1);
+    });
+
+    test('17% tax on 1000 minor units', () => {
+      const tax = Money.taxFromExclusive(1000, 1700);
+      assertEqual(tax, 170);
+    });
+
+    test('Inclusive tax extraction on 1150 gross with 15% rate', () => {
+      const tax = Money.taxFromInclusive(1150, 1500);
+      assertEqual(tax, 150);
+    });
+
+    test('Inclusive and exclusive round trip test', () => {
+      const net = 25400;
+      const rateBp = 1800;
+      const taxEx = Money.taxFromExclusive(net, rateBp);
+      const gross = Money.add(net, taxEx);
+      const taxIn = Money.taxFromInclusive(gross, rateBp);
+      assertEqual(taxIn, taxEx);
+    });
+
+    // ==========================================
+    // 4. Quantity x Unit Price (Line Totals)
+    // ==========================================
+    group('4. Quantity x Unit Price (Milli-unit math)');
+
+    test('Quantity 2.375 kg (2375 milli) @ Rs. 120.00 (12000 minor)', () => {
+      const total = Money.lineTotal(2375, 12000);
+      assertEqual(total, 28500);
+    });
+
+    test('Quantity 1 item (1000 milli) @ Rs. 99.99 (9999 minor)', () => {
+      const total = Money.lineTotal(1000, 9999);
+      assertEqual(total, 9999);
+    });
+
+    test('Fractional quantity rounding: 333 milli @ 1000 minor', () => {
+      assertEqual(Money.lineTotal(333, 1000), 333);
+    });
+
+    test('Quantity 2500 milli @ 1505 minor units', () => {
+      assertEqual(Money.lineTotal(2500, 1505), 3763);
+    });
+
+    // ==========================================
+    // 5. Discounts & Sequence of Calculation
+    // ==========================================
+    group('5. Discounts & Calculation Order');
+
+    test('Percentage discount of 10% (1000 bp) on 15000 minor', () => {
+      const res = Money.applyDiscount(15000, 1000, 'percentage');
+      assertEqual(res.discountMinor, 1500);
+      assertEqual(res.netMinor, 13500);
+    });
+
+    test('Fixed discount of 500 minor on 2000 minor', () => {
+      const res = Money.applyDiscount(2000, 500, 'fixed');
+      assertEqual(res.discountMinor, 500);
+      assertEqual(res.netMinor, 1500);
+    });
+
+    test('Discount exceeding subtotal is capped at subtotal', () => {
+      const res = Money.applyDiscount(1000, 1500, 'fixed');
+      assertEqual(res.discountMinor, 1000);
+      assertEqual(res.netMinor, 0);
+    });
+
+    test('Discount cannot be negative', () => {
+      const res = Money.applyDiscount(1000, -200, 'fixed');
+      assertEqual(res.discountMinor, 0);
+      assertEqual(res.netMinor, 1000);
+    });
+
+    test('Full invoice calculation order: Lines -> Subtotal -> Disc -> Tax -> Freight', () => {
+      const lines = [
+        { qtyMilli: 2000, unitPriceMinor: 10000, taxRateBp: 1500, taxable: true },
+        { qtyMilli: 1000, unitPriceMinor: 5000, taxRateBp: 1500, taxable: true }
+      ];
+      const inv = Money.invoiceTotals(lines, {
+        discountVal: 1000,
+        discountType: 'percentage',
+        taxInclusive: false,
+        freightMinor: 1500
+      });
+
+      assertEqual(inv.subtotalMinor, 25000);
+      assertEqual(inv.discountMinor, 2500);
+      assertEqual(inv.netSubtotalMinor, 22500);
+      assertEqual(inv.taxMinor, 3375);
+      assertEqual(inv.freightMinor, 1500);
+      assertEqual(inv.grandTotalMinor, 27375);
+    });
+
+    // ==========================================
+    // 6. Zero-Decimal & Other Currencies
+    // ==========================================
+    group('6. Multi-Currency & Decimals');
+
+    test('Zero decimal currency (JPY) parsing and formatting', () => {
+      const jpyMinor = Money.parseMoney('1500', 'JPY');
+      assertEqual(jpyMinor, 1500);
+      assertEqual(Money.formatMoney(jpyMinor, 'JPY'), '¥ 1,500');
+    });
+
+    test('Three decimal currency (KWD)', () => {
+      const kwdMinor = Money.parseMoney('12.345', 'KWD');
+      assertEqual(kwdMinor, 12345);
+      assertEqual(Money.formatMoney(kwdMinor, 'KWD'), 'KD 12.345');
+    });
+
+    test('Formatting USD currency with symbol ($)', () => {
+      assertEqual(Money.formatMoney(10050, 'USD'), '$100.50');
+    });
+
+    test('Formatting EUR currency with symbol (€)', () => {
+      assertEqual(Money.formatMoney(25000, 'EUR'), '€250.00');
+    });
+
+    test('Formatting GBP currency with symbol (£)', () => {
+      assertEqual(Money.formatMoney(9999, 'GBP'), '£99.99');
+    });
+
+    test('Formatting AED currency with symbol (AED)', () => {
+      assertEqual(Money.formatMoney(50000, 'AED'), 'AED 500.00');
+    });
+
+    test('Formatting SAR currency with symbol (SAR)', () => {
+      assertEqual(Money.formatMoney(75000, 'SAR'), 'SAR 750.00');
+    });
+
+    test('Formatting CAD currency with symbol (CA$)', () => {
+      assertEqual(Money.formatMoney(12000, 'CAD'), 'CA$ 120.00');
+    });
+
+    test('Formatting AUD currency with symbol (AU$)', () => {
+      assertEqual(Money.formatMoney(18500, 'AUD'), 'AU$ 185.00');
+    });
+
+    test('Formatting with Indian numbering system (Lakh/Crore grouping)', () => {
+      const fmt = Money.formatMoney(123456789, 'PKR', { useIndianSystem: true });
+      assertEqual(fmt, 'Rs. 12,34,567.89');
+    });
+
+    test('Formatting with Western numbering system (Million grouping)', () => {
+      const fmt = Money.formatMoney(123456789, 'USD', { useIndianSystem: false });
+      assertEqual(fmt, '$1,234,567.89');
+    });
+
+    test('Negative formatting', () => {
+      const fmt = Money.formatMoney(-15050, 'PKR');
+      assertEqual(fmt, '-Rs. 150.50');
+    });
+
+    // ==========================================
+    // 7. Arithmetic Primitives & Edge Cases
+    // ==========================================
+    group('7. Arithmetic Primitives & Edge Cases');
+
+    test('Add zero returns same amount', () => {
+      assertEqual(Money.add(15000, 0), 15000);
+    });
+
+    test('Subtract zero returns same amount', () => {
+      assertEqual(Money.sub(15000, 0), 15000);
+    });
+
+    test('Negate positive amount', () => {
+      assertEqual(Money.negate(5000), -5000);
+    });
+
+    test('Negate negative amount returns positive', () => {
+      assertEqual(Money.negate(-5000), 5000);
+    });
+
+    test('Negate zero returns zero', () => {
+      assertEqual(Money.negate(0), 0);
+    });
+
+    test('Sum empty array returns zero', () => {
+      assertEqual(Money.sum([]), 0);
+    });
+
+    test('Sum single element array', () => {
+      assertEqual(Money.sum([12500]), 12500);
+    });
+
+    test('Sum multiple positive elements', () => {
+      assertEqual(Money.sum([1000, 2000, 3000, 4000]), 10000);
+    });
+
+    test('Sum with mixed positive and negative numbers', () => {
+      assertEqual(Money.sum([10000, -2500, 500, -8000]), 0);
+    });
+
+    test('Split into 1 part returns the exact total', () => {
+      const parts = Money.splitEvenly(12345, 1);
+      assertEqual(parts.length, 1);
+      assertEqual(parts[0], 12345);
+    });
+
+    test('Allocate zero total returns all zeroes', () => {
+      const parts = Money.allocate(0, [10, 20, 30]);
+      assertEqual(parts.reduce((a, b) => a + b, 0), 0);
+      assertEqual(parts[0], 0);
+    });
+
+    test('Percent of zero returns zero', () => {
+      assertEqual(Money.percentOf(0, 1500), 0);
+    });
+
+    test('0% tax returns zero', () => {
+      assertEqual(Money.taxFromExclusive(50000, 0), 0);
+    });
+
+    test('100% tax (10000 bp) doubles amount', () => {
+      assertEqual(Money.taxFromExclusive(50000, 10000), 50000);
+    });
+
+    test('Amount in words for single Dollar (singular noun)', () => {
+      assertEqual(Money.amountInWords(100, 'USD', { system: 'western' }), 'One US Dollar Only');
+    });
+
+    test('Amount in words for 500,000 PKR (Five Lakh)', () => {
+      assertEqual(Money.amountInWords(50000000, 'PKR', { system: 'indian' }), 'Five Lakh Pakistani Rupees Only');
+    });
+
+    // ==========================================
+    // 7. Huge Amounts & Boundaries
+    // ==========================================
+    group('7. Huge Amounts & Safety');
+
+    test('Large integer handling (100 Billion minor units = 1 Billion PKR)', () => {
+      const huge = 100000000000;
+      const parsed = Money.parseMoney('1000000000.00', 'PKR');
+      assertEqual(parsed, huge);
+      const added = Money.add(parsed, 5000);
+      assertEqual(added, 100000005000);
+    });
+
+    test('Throw on invalid non-integer string input', () => {
+      let threw = false;
+      try {
+        Money.parseMoney('abc.xyz');
+      } catch (e) {
+        threw = true;
+      }
+      assertTrue(threw);
+    });
+
+    test('Compare with tolerance', () => {
+      const r1 = Money.compareWithTolerance(10050, 10051, 1);
+      assertTrue(r1.matches);
+      assertEqual(r1.diff, -1);
+
+      const r2 = Money.compareWithTolerance(10050, 10052, 1);
+      assertTrue(!r2.matches);
+    });
+
+    // ==========================================
+    // 8. Amount in Words (Indian & Western)
+    // ==========================================
+    group('8. Amount in Words Spelled-Out');
+
+    test('Zero amount in words', () => {
+      assertEqual(Money.amountInWords(0, 'PKR'), 'Zero Pakistani Rupees Only');
+    });
+
+    test('Simple amount: 150.75 PKR Indian system', () => {
+      const words = Money.amountInWords(15075, 'PKR', { system: 'indian' });
+      assertEqual(words, 'One Hundred Fifty Pakistani Rupees and Seventy-Five Paisas Only');
+    });
+
+    test('100,000 minor units (1,000.00) in words', () => {
+      const words = Money.amountInWords(100000, 'PKR', { system: 'indian' });
+      assertEqual(words, 'One Thousand Pakistani Rupees Only');
+    });
+
+    test('10,000,000 minor units (100,000.00 = 1 Lakh) in Indian words', () => {
+      const words = Money.amountInWords(10000000, 'PKR', { system: 'indian' });
+      assertEqual(words, 'One Lakh Pakistani Rupees Only');
+    });
+
+    test('1,000,000,000 minor units (1 Crore) in Indian words', () => {
+      const words = Money.amountInWords(1000000000, 'PKR', { system: 'indian' });
+      assertEqual(words, 'One Crore Pakistani Rupees Only');
+    });
+
+    test('1,000,000,000 minor units in Western words (10 Million)', () => {
+      const words = Money.amountInWords(1000000000, 'USD', { system: 'western' });
+      assertEqual(words, 'Ten Million US Dollars Only');
+    });
+
+    test('Single rupee and single paisa singular form check', () => {
+      const words = Money.amountInWords(101, 'PKR', { system: 'indian' });
+      assertEqual(words, 'One Pakistani Rupee and One Paisa Only');
+    });
+
+    // ==========================================
+    // 9. 1,000 Random Invoices Stress Test
+    // ==========================================
+    group('9. 1,000 Invoices Stress Test (Exact Sum Verification)');
+
+    test('1,000 simulated invoices: line parts + tax + freight - discount === grand total to the last paisa', () => {
+      let seed = 123456789;
+      function nextRandom() {
+        seed = (seed * 1664525 + 1013904223) % 4294967296;
+        return seed / 4294967296;
+      }
+
+      for (let i = 0; i < 1000; i++) {
+        const lineCount = Math.floor(nextRandom() * 5) + 1;
+        const lines = [];
+        for (let l = 0; l < lineCount; l++) {
+          const qty = Math.floor(nextRandom() * 5000) + 500;
+          const price = Math.floor(nextRandom() * 100000) + 100;
+          const rateBp = nextRandom() > 0.5 ? 1500 : (nextRandom() > 0.5 ? 1800 : 0);
+          lines.push({ qtyMilli: qty, unitPriceMinor: price, taxRateBp: rateBp, taxable: rateBp > 0 });
+        }
+
+        const freight = Math.floor(nextRandom() * 5000);
+        const discountVal = Math.floor(nextRandom() * 2000);
+        const taxInclusive = nextRandom() > 0.5;
+
+        const totals = Money.invoiceTotals(lines, {
+          discountVal,
+          discountType: 'fixed',
+          taxInclusive,
+          freightMinor: freight
+        });
+
+        const linesSum = lines.reduce((acc, l) => acc + Money.lineTotal(l.qtyMilli, l.unitPriceMinor), 0);
+        assertEqual(totals.subtotalMinor, linesSum, `Invoice #${i} lines sum mismatch`);
+
+        assertEqual(totals.netSubtotalMinor, totals.subtotalMinor - totals.discountMinor, `Invoice #${i} net mismatch`);
+
+        if (!taxInclusive) {
+          assertEqual(totals.grandTotalMinor, totals.netSubtotalMinor + totals.taxMinor + totals.freightMinor, `Invoice #${i} grand total mismatch`);
+        } else {
+          assertEqual(totals.grandTotalMinor, totals.netSubtotalMinor + totals.freightMinor, `Invoice #${i} inclusive grand total mismatch`);
+        }
+      }
+    });
+
+    // ==========================================
+    // Render Results
+    // ==========================================
+    const resultsContainer = document.getElementById('results');
+    let totalTests = 0;
+    let passedTests = 0;
+    let failedTests = 0;
+
+    for (const grp of testGroups) {
+      const groupEl = document.createElement('div');
+      groupEl.className = 'test-group';
+
+      let groupPassed = 0;
+      let groupTotal = grp.tests.length;
+
+      const rowsHtml = grp.tests.map(t => {
+        totalTests++;
+        if (t.pass) {
+          passedTests++;
+          groupPassed++;
+          return `
+            <div class="test-row">
+              <div class="test-desc">${t.description}</div>
+              <span class="test-badge badge-pass">PASS</span>
+            </div>
+          `;
+        } else {
+          failedTests++;
+          return `
+            <div class="test-row">
+              <div>
+                <div class="test-desc">${t.description}</div>
+                <div class="fail-detail">FAILED: ${t.error}</div>
+              </div>
+              <span class="test-badge badge-fail">FAIL</span>
+            </div>
+          `;
+        }
+      }).join('');
+
+      groupEl.innerHTML = `
+        <div class="group-header">
+          <span>${grp.name}</span>
+          <span style="font-size: 13px; color: ${groupPassed === groupTotal ? 'var(--success-text)' : 'var(--error-text)'}">
+            ${groupPassed} / ${groupTotal} passed
+          </span>
+        </div>
+        ${rowsHtml}
+      `;
+
+      resultsContainer.appendChild(groupEl);
+    }
+
+    const statsEl = document.getElementById('stats');
+    statsEl.innerHTML = `
+      <span class="pill pill-info">Total: ${totalTests}</span>
+      <span class="pill pill-success">Passed: ${passedTests}</span>
+      ${failedTests > 0 ? `<span class="pill pill-error">Failed: ${failedTests}</span>` : '<span class="pill pill-success">100% All Passed</span>'}
+    `;
+  </script>
+</body>
+</html>

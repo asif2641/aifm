@@ -1,0 +1,157 @@
+/**
+ * @file en.js
+ * @description English UI strings and dictionary for Smart Bill Auditor.
+ * All text rendered in the user interface is retrieved via t('key') to guarantee full i18n readiness.
+ */
+
+export default {
+  // Application branding
+  app_title: 'Smart Bill Auditor',
+  app_tagline: 'Intelligent Bill Auditor & Expense Suite',
+  
+  // Navigation & Groups
+  nav_dashboard: 'Dashboard',
+  nav_system_check: 'System Check',
+  nav_scan: 'Scan Bill',
+  nav_vault: 'Receipt Vault',
+  nav_audit: 'Audit Log & Rules',
+  nav_items: 'Items Master',
+  nav_vendors: 'Vendors',
+  nav_customers: 'Customers',
+  nav_inventory: 'Inventory',
+  nav_purchase_orders: 'Purchase Orders',
+  nav_sales: 'Sales & Invoices',
+  nav_ledger: 'Ledger & Payments',
+  nav_tax_reports: 'Tax Reports',
+  nav_quick_add: 'Quick Add',
+  nav_budgets: 'Budgets',
+  nav_recurring: 'Recurring Rules',
+  nav_khata: 'Khata / Udhaar',
+  nav_split: 'Split Expense',
+  nav_barcode: 'Barcode Lookup',
+  nav_voice: 'Voice Entry',
+  nav_settings: 'Settings',
+  nav_shifts: 'Shifts & Registers',
+
+  // Groups
+  group_overview: 'Overview',
+  group_operations: 'Operations',
+  group_catalog: 'Catalog & Stock',
+  group_parties: 'Parties',
+  group_finance: 'Finance & Ledger',
+  group_reports: 'Reports & Audits',
+  group_system: 'System',
+
+  // Module names
+  mod_system_check: 'System Health & Diagnostics',
+  mod_dashboard: 'Main Dashboard',
+  mod_scan: 'AI Bill Scanner',
+  mod_manual_bill: 'Manual Bill Entry',
+  mod_vault: 'Receipt Vault',
+  mod_audit: 'Audit Engine & Rules',
+  mod_items: 'Item Master Catalog',
+  mod_parties: 'Vendors & Customers',
+  mod_vendors: 'Vendor Profiles & History',
+  mod_customers: 'Customer Accounts',
+  mod_inventory: 'Stock & Inventory Ledger',
+  mod_purchase_orders: 'Purchase Orders & Claims',
+  mod_sales: 'Sales & Margins',
+  mod_ledger: 'Financial Ledger & Aging',
+  mod_tax_reports: 'Tax & P&L Reports',
+  mod_quick_add: 'Quick Expense Entry',
+  mod_budgets: 'Category Budgets',
+  mod_recurring: 'Recurring Subscriptions',
+  mod_barcode: 'Barcode Scanner',
+  mod_voice: 'Voice Expense Parser',
+  mod_shifts: 'Shifts & Cash Register',
+
+  // General Actions
+  btn_save: 'Save',
+  btn_cancel: 'Cancel',
+  btn_confirm: 'Confirm',
+  btn_reload: 'Reload',
+  btn_retry: 'Retry',
+  btn_close: 'Close',
+  btn_enable: 'Enable',
+  btn_disable: 'Disable',
+  btn_run_tests: 'Open Test Runner',
+  btn_clear_cache: 'Clear App Cache & Reload',
+  btn_request_persist: 'Request Storage Persistence',
+  btn_login: 'Unlock with PIN',
+  btn_logout: 'Switch User',
+  btn_lock: 'Lock Screen',
+  btn_open_shift: 'Open Shift',
+  btn_close_shift: 'Close Shift',
+  btn_export_csv: 'Export CSV',
+  btn_backup: 'Download Backup JSON',
+  btn_restore: 'Restore Backup',
+  btn_delete: 'Delete',
+  btn_request_delete: 'Request Deletion',
+  btn_approve: 'Approve',
+  btn_reject: 'Reject',
+  btn_reset_all: 'Factory Reset',
+
+  // System Check Screen
+  sys_title: 'System Diagnostics & Health Check',
+  sys_subtitle: 'Real-time diagnostic overview of core storage, service worker, module states, and environment.',
+  sys_app_version: 'App Version',
+  sys_db_version: 'Database Schema Version',
+  sys_sw_status: 'Service Worker Status',
+  sys_storage_status: 'Storage Persistence Status',
+  sys_storage_usage: 'Estimated Storage Usage',
+  sys_environment: 'Environment Protocol',
+  sys_modules_title: 'Dynamic Module Registry',
+  sys_modules_desc: 'Modules can be enabled or disabled dynamically. Core modules are permanent.',
+  sys_tests_title: 'Unit Test Suites',
+  sys_tests_desc: 'Independent browser-based test runners verifying mathematical precision and core logic.',
+
+  // Status Labels
+  status_active: 'Active',
+  status_inactive: 'Inactive',
+  status_installed: 'Installed',
+  status_persisted: 'Persisted (Protected)',
+  status_temporary: 'Temporary (Subject to OS Cleanup)',
+  status_core: 'Core (Permanent)',
+  status_coming_soon: 'Coming in Later Phase',
+  status_running: 'Online',
+  status_offline: 'Offline Mode',
+  status_open: 'Open',
+  status_closed: 'Closed',
+
+  // Degradation & Notice Banners
+  notice_file_protocol_title: 'Running from local file:// protocol',
+  notice_file_protocol_body: 'Camera access and offline Service Worker require HTTPS or http://localhost. For the full experience, run using a local web server.',
+  notice_new_version_title: 'New Version Available',
+  notice_new_version_body: 'A newer build of the application is available.',
+  notice_new_version_action: 'Tap to Update Now',
+
+  // Auth, Roles & Shifts
+  role_admin: 'Admin',
+  role_staff: 'Staff',
+  role_viewer: 'Viewer',
+  auth_enter_pin: 'Enter Security PIN',
+  auth_pin_placeholder: 'Enter 4-6 digit PIN',
+  auth_invalid_pin: 'Incorrect PIN. Please try again.',
+  auth_locked_out: 'Too many failed attempts. Locked for {seconds} seconds.',
+  auth_user_select: 'Select User Profile',
+  shift_required_notice: 'You must open a shift with opening cash before creating records.',
+  shift_opened_success: 'Shift opened successfully.',
+  shift_closed_success: 'Shift closed successfully. Print report available.',
+  shift_opening_cash: 'Opening Cash in Drawer',
+  shift_counted_cash: 'Counted Cash in Drawer',
+
+  // Settings Tabs
+  settings_tab_general: 'General',
+  settings_tab_features: 'Features & Presets',
+  settings_tab_security: 'Security & Users',
+  settings_tab_data: 'Data & Backup',
+  settings_tab_about: 'About',
+  settings_tab_reset: 'Factory Reset',
+
+  // Empty, Loading, Error States
+  state_loading: 'Loading system components...',
+  state_empty_title: 'No Records Found',
+  state_empty_body: 'There is nothing to display in this view yet.',
+  state_error_title: 'An Error Occurred',
+  state_error_body: 'We could not complete your request. Please check the logs.'
+};

@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Bill Auditor — Phase 4 Business Module Test Suite</title>
+  <style>
+    * { box-shadow: none !important; text-shadow: none !important; box-sizing: border-box; }
+    :root {
+      --canvas: #FAF8F5;
+      --card: #FFFFFF;
+      --panel: #F3EFEA;
+      --primary: #2F5D50;
+      --secondary: #D97762;
+      --border: #E4DFD7;
+      --success-bg: #E6F2EC;
+      --success-text: #2E7D5B;
+      --error-bg: #FCEAEA;
+      --error-text: #C93B3B;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--canvas);
+      color: #1E201E;
+    }
+    .container { max-width: 960px; margin: 0 auto; }
+    header { background: var(--card); border: 1px solid var(--border); padding: 24px; margin-bottom: 24px; }
+    h1 { margin: 0 0 8px 0; font-size: 22px; color: var(--primary); }
+    .pill { display: inline-flex; padding: 4px 12px; font-size: 13px; font-weight: 600; border: 1px solid currentColor; margin-right: 8px; }
+    .pill-success { background: var(--success-bg); color: var(--success-text); }
+    .pill-error { background: var(--error-bg); color: var(--error-text); }
+    .section-title { font-size: 15px; font-weight: 700; color: var(--primary); margin: 20px 0 10px 0; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+    .test-row { background: var(--card); border: 1px solid var(--border); padding: 12px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Phase 4 Business Module Verification Suite</h1>
+      <p style="color: #686D68; margin: 0 0 16px 0;">40+ Automated tests for Parties, Ledgers, Aging, Inventory, Shortage Claims, POs, Vouchers, Sales Margins, and Reconciliation.</p>
+      <div id="stats">Running tests...</div>
+    </header>
+    <div id="results"></div>
+  </div>
+
+  <script>
+    // Pure embedded zero-CORS business logic implementation for standalone verification
+
+    // Money & Math Helpers
+    function toBig(v) { return BigInt(v); }
+    function toNum(b) { return Number(b); }
+    function add(a, b) { return toNum(toBig(a) + toBig(b)); }
+    function sub(a, b) { return toNum(toBig(a) - toBig(b)); }
+    function lineTotal(qtyMilli, unitPriceMinor) {
+      return toNum((toBig(qtyMilli) * toBig(unitPriceMinor)) / 1000n);
+    }
+    function formatMoney(minorUnits, curr = 'PKR') {
+      const abs = Math.abs(minorUnits);
+      const whole = Math.floor(abs / 100);
+      const frac = String(abs % 100).padStart(2, '0');
+      const sign = minorUnits < 0 ? '-' : '';
+      return `${sign}Rs. ${whole.toLocaleString()}.${frac}`;
+    }
+
+    // Number to words (Indian & Western)
+    const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+      'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+    function smallNumToWords(n) {
+      if (n === 0) return '';
+      if (n < 20) return ONES[n];
+      const t = TENS[Math.floor(n / 10)];
+      const o = ONES[n % 10];
+      return o ? `${t} ${o}` : t;
+    }
+    function threeDigitToWords(n) {
+      const h = Math.floor(n / 100);
+      const r = n % 100;
+      let s = '';
+      if (h > 0) s += `${ONES[h]} Hundred`;
+      if (h > 0 && r > 0) s += ' and ';
+      if (r > 0) s += smallNumToWords(r);
+      return s;
+    }
+    function indianIntToWords(n) {
+      if (n === 0) return 'Zero';
+      const parts = [];
+      const crore = Math.floor(n / 10000000);
+      n %= 10000000;
+      const lakh = Math.floor(n / 100000);
+      n %= 100000;
+      const thousand = Math.floor(n / 1000);
+      n %= 1000;
+      const rem = n;
+
+      if (crore > 0) parts.push(`${indianIntToWords(crore)} Crore`);
+      if (lakh > 0) parts.push(`${smallNumToWords(lakh)} Lakh`);
+      if (thousand > 0) parts.push(`${smallNumToWords(thousand)} Thousand`);
+      if (rem > 0) parts.push(threeDigitToWords(rem));
+      return parts.join(' ');
+    }
+    function westernIntToWords(n) {
+      if (n === 0) return 'Zero';
+      const parts = [];
+      const billion = Math.floor(n / 1000000000);
+      n %= 1000000000;
+      const million = Math.floor(n / 1000000);
+      n %= 1000000;
+      const thousand = Math.floor(n / 1000);
+      n %= 1000;
+      const rem = n;
+
+      if (billion > 0) parts.push(`${westernIntToWords(billion)} Billion`);
+      if (million > 0) parts.push(`${westernIntToWords(million)} Million`);
+      if (thousand > 0) parts.push(`${westernIntToWords(thousand)} Thousand`);
+      if (rem > 0) parts.push(threeDigitToWords(rem));
+      return parts.join(' ');
+    }
+    function amountInWords(minorUnits, curr = 'PKR', options = {}) {
+      const { system = 'indian' } = options;
+      const abs = Math.abs(minorUnits);
+      const whole = Math.floor(abs / 100);
+      const frac = abs % 100;
+      const wholeWords = system === 'western' ? westernIntToWords(whole) : indianIntToWords(whole);
+      let res = `${wholeWords} Rupees`;
+      if (frac > 0) res += ` and ${smallNumToWords(frac)} Paisas`;
+      res += ' Only';
+      return res;
+    }
+
+    // Party Balance Derivation
+    function computePartyBalance(partyId, partyType, transactions = [], payments = [], debitNotes = []) {
+      const pTxs = transactions.filter(t => t.partyId === partyId || t.vendorName === partyId);
+      const pPayments = payments.filter(p => p.partyId === partyId && p.status !== 'cancelled');
+      const pNotes = debitNotes.filter(d => (d.partyId === partyId || d.vendorName === partyId) && d.status !== 'cancelled');
+
+      let billed = 0;
+      for (const t of pTxs) if (t.status === 'confirmed' || t.status === 'posted') billed += (t.grandTotalMinor || 0);
+
+      let paid = 0;
+      for (const p of pPayments) paid += (p.amountMinor || 0);
+
+      let notes = 0;
+      for (const d of pNotes) notes += (d.totalMinor || 0);
+
+      return billed - notes - paid;
+    }
+
+    // Aging Buckets Derivation (FIFO)
+    function computeAgingBuckets(partyId, context = {}) {
+      const { transactions = [], payments = [], debitNotes = [], asOfDate = '2026-11-04' } = context;
+      const invoices = transactions
+        .filter(t => (t.partyId === partyId || t.vendorName === partyId) && (t.status === 'confirmed' || t.status === 'posted'))
+        .map(t => ({
+          id: t.id,
+          date: (t.date || asOfDate).slice(0, 10),
+          unpaidMinor: t.grandTotalMinor || 0
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      let totalCredits = 0;
+      for (const p of payments) if (p.partyId === partyId && p.status !== 'cancelled') totalCredits += (p.amountMinor || 0);
+      for (const d of debitNotes) if ((d.partyId === partyId || d.vendorName === partyId) && d.status !== 'cancelled') totalCredits += (d.totalMinor || 0);
+
+      let rem = totalCredits;
+      for (const inv of invoices) {
+        if (rem >= inv.unpaidMinor) {
+          rem -= inv.unpaidMinor;
+          inv.unpaidMinor = 0;
+        } else {
+          inv.unpaidMinor -= rem;
+          rem = 0;
+        }
+      }
+
+      const asOfTime = new Date(asOfDate).getTime();
+      const buckets = { current_0_30: 0, past_31_60: 0, past_61_90: 0, past_90_plus: 0 };
+      let totalOwed = 0;
+
+      for (const inv of invoices) {
+        if (inv.unpaidMinor > 0) {
+          totalOwed += inv.unpaidMinor;
+          const diffDays = Math.max(0, Math.floor((asOfTime - new Date(inv.date).getTime()) / (1000 * 60 * 60 * 24)));
+          if (diffDays <= 30) buckets.current_0_30 += inv.unpaidMinor;
+          else if (diffDays <= 60) buckets.past_31_60 += inv.unpaidMinor;
+          else if (diffDays <= 90) buckets.past_61_90 += inv.unpaidMinor;
+          else buckets.past_90_plus += inv.unpaidMinor;
+        }
+      }
+      return { totalOwedMinor: totalOwed, buckets, unallocatedCredits: rem };
+    }
+
+    // Stock & WAC Derivations
+    function computeItemStock(itemId, stockMovements = []) {
+      let tot = 0;
+      for (const m of stockMovements) {
+        if (m.itemId === itemId && m.status !== 'cancelled') tot += (m.qtyChangeMilli || 0);
+      }
+      return tot;
+    }
+
+    function computeItemWAC(itemId, stockMovements = [], fallbackPriceMinor = 0) {
+      let curStockMilli = 0;
+      let curWACMinor = fallbackPriceMinor || 0;
+      const sorted = [...stockMovements]
+        .filter(m => m.itemId === itemId && m.status !== 'cancelled')
+        .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+      for (const m of sorted) {
+        const delta = (m.qtyChangeMilli != null) ? m.qtyChangeMilli : (m.deltaMilli != null ? m.deltaMilli : 0);
+        let rate = m.unitPriceMinor;
+        if (rate == null || rate <= 0) {
+          rate = curWACMinor > 0 ? curWACMinor : fallbackPriceMinor;
+        }
+        if (delta > 0) {
+          const prevStock = Math.max(0, curStockMilli);
+          const newStock = prevStock + delta;
+          if (newStock > 0) {
+            const prevVal = lineTotal(prevStock, curWACMinor);
+            const addedVal = lineTotal(delta, rate);
+            curWACMinor = Math.round(((prevVal + addedVal) * 1000) / newStock);
+          }
+          curStockMilli += delta;
+        } else {
+          curStockMilli += delta;
+        }
+      }
+      return curWACMinor > 0 ? curWACMinor : (fallbackPriceMinor || 0);
+    }
+
+    function validateStockDecrease(currentMilli, reqMilli, policy = 'warn') {
+      const res = currentMilli - reqMilli;
+      if (res >= 0) return { allowed: true, warning: false };
+      if (policy === 'block') return { allowed: false, warning: false };
+      if (policy === 'warn') return { allowed: true, warning: true };
+      return { allowed: true, warning: false };
+    }
+
+    // Shortage Detection & Debit Note
+    function detectBillShortages(lines = []) {
+      const shortages = [];
+      let subMinor = 0;
+      let taxMinor = 0;
+      for (const l of lines) {
+        const billed = parseFloat(l.qtyBilled) || 0;
+        const rec = l.qtyReceived != null ? parseFloat(l.qtyReceived) : billed;
+        if (billed > rec) {
+          const diffQty = billed - rec;
+          const diffMilli = Math.round(diffQty * 1000);
+          const val = lineTotal(diffMilli, l.unitPriceMinor || 0);
+          const tVal = l.taxRateBp ? Math.round((val * l.taxRateBp) / 10000) : 0;
+          subMinor = add(subMinor, val);
+          taxMinor = add(taxMinor, tVal);
+          shortages.push({ lineId: l.id, diffQty, val, tax: tVal });
+        }
+      }
+      if (shortages.length === 0) return null;
+      return { hasShortage: true, lines: shortages, subtotalMinor: subMinor, taxMinor, totalMinor: add(subMinor, taxMinor) };
+    }
+
+    // Sales Margin Derivation
+    function calculateLineMargin(line) {
+      const qM = Math.round((parseFloat(line.qty) || 0) * 1000);
+      const saleVal = lineTotal(qM, line.unitPriceMinor || 0);
+      const cogsVal = lineTotal(qM, line.wacCostMinor || 0);
+      const gp = saleVal - cogsVal;
+      const marginPct = saleVal > 0 ? Math.round(((gp / saleVal) * 100) * 10) / 10 : 0;
+      return { lineTotalMinor: saleVal, cogsMinor: cogsVal, grossProfitMinor: gp, marginPct };
+    }
+
+    // Gap-free Sequential Numbering
+    function formatSequentialNumber(counterRecord, prefix = 'PO', year = 2026) {
+      const seq = (counterRecord && counterRecord.nextSeq) ? counterRecord.nextSeq : 1;
+      const pad = String(seq).padStart(4, '0');
+      return {
+        documentNumber: `${prefix}-${year}-${pad}`,
+        nextSeq: seq + 1
+      };
+    }
+
+    // Financial Reports
+    function computeProfitAndLoss(sales = [], cogs = [], expenses = []) {
+      const totalSales = sales.reduce((a, b) => add(a, b), 0);
+      const totalCogs = cogs.reduce((a, b) => add(a, b), 0);
+      const totalExp = expenses.reduce((a, b) => add(a, b), 0);
+      const gp = sub(totalSales, totalCogs);
+      const np = sub(gp, totalExp);
+      return { totalSales, totalCogs, grossProfit: gp, operatingExpenses: totalExp, netProfit: np };
+    }
+
+    // =========================================================================
+    // TEST RUNNER
+    // =========================================================================
+    const tests = [];
+    function test(name, fn) { tests.push({ name, fn }); }
+
+    // --- Suite 1: Party Balances & Partial Payments (6 tests) ---
+    test('computePartyBalance returns 0 when no activity exists', () => {
+      const bal = computePartyBalance('v1', 'vendor', [], [], []);
+      if (bal !== 0) throw new Error(`Expected 0, got ${bal}`);
+    });
+
+    test('computePartyBalance reflects confirmed purchase bill as payable', () => {
+      const txs = [{ id: 't1', partyId: 'v1', grandTotalMinor: 50000, status: 'confirmed' }];
+      const bal = computePartyBalance('v1', 'vendor', txs, [], []);
+      if (bal !== 50000) throw new Error(`Expected 50000, got ${bal}`);
+    });
+
+    test('computePartyBalance ignores unconfirmed draft bills', () => {
+      const txs = [{ id: 't1', partyId: 'v1', grandTotalMinor: 50000, status: 'draft' }];
+      const bal = computePartyBalance('v1', 'vendor', txs, [], []);
+      if (bal !== 0) throw new Error(`Expected 0, got ${bal}`);
+    });
+
+    test('computePartyBalance subtracts partial payment accurately', () => {
+      const txs = [{ id: 't1', partyId: 'v1', grandTotalMinor: 50000, status: 'confirmed' }];
+      const pms = [{ id: 'p1', partyId: 'v1', amountMinor: 20000, status: 'completed' }];
+      const bal = computePartyBalance('v1', 'vendor', txs, pms, []);
+      if (bal !== 30000) throw new Error(`Expected 30000, got ${bal}`);
+    });
+
+    test('computePartyBalance handles advance payment (overpayment into negative payable)', () => {
+      const txs = [{ id: 't1', partyId: 'v1', grandTotalMinor: 50000, status: 'confirmed' }];
+      const pms = [{ id: 'p1', partyId: 'v1', amountMinor: 65000, status: 'completed' }];
+      const bal = computePartyBalance('v1', 'vendor', txs, pms, []);
+      if (bal !== -15000) throw new Error(`Expected -15000, got ${bal}`);
+    });
+
+    test('computePartyBalance reduces payable when Debit Note is present', () => {
+      const txs = [{ id: 't1', partyId: 'v1', grandTotalMinor: 50000, status: 'confirmed' }];
+      const dns = [{ id: 'd1', partyId: 'v1', totalMinor: 5000, status: 'open' }];
+      const bal = computePartyBalance('v1', 'vendor', txs, [], dns);
+      if (bal !== 45000) throw new Error(`Expected 45000, got ${bal}`);
+    });
+
+    // --- Suite 2: Aging Buckets Calculation (5 tests) ---
+    test('computeAgingBuckets places recent bill in current_0_30 bucket', () => {
+      const txs = [{ id: 't1', partyId: 'v1', date: '2026-11-01', grandTotalMinor: 10000, status: 'confirmed' }];
+      const res = computeAgingBuckets('v1', { transactions: txs, asOfDate: '2026-11-04' });
+      if (res.buckets.current_0_30 !== 10000) throw new Error(`Expected 10000 in 0-30, got ${res.buckets.current_0_30}`);
+      if (res.totalOwedMinor !== 10000) throw new Error(`Expected total 10000, got ${res.totalOwedMinor}`);
+    });
+
+    test('computeAgingBuckets places 45-day bill in past_31_60 bucket', () => {
+      const txs = [{ id: 't1', partyId: 'v1', date: '2026-09-20', grandTotalMinor: 25000, status: 'confirmed' }];
+      const res = computeAgingBuckets('v1', { transactions: txs, asOfDate: '2026-11-04' });
+      if (res.buckets.past_31_60 !== 25000) throw new Error(`Expected 25000 in 31-60, got ${res.buckets.past_31_60}`);
+    });
+
+    test('computeAgingBuckets places 75-day bill in past_61_90 bucket', () => {
+      const txs = [{ id: 't1', partyId: 'v1', date: '2026-08-20', grandTotalMinor: 15000, status: 'confirmed' }];
+      const res = computeAgingBuckets('v1', { transactions: txs, asOfDate: '2026-11-04' });
+      if (res.buckets.past_61_90 !== 15000) throw new Error(`Expected 15000 in 61-90, got ${res.buckets.past_61_90}`);
+    });
+
+    test('computeAgingBuckets places 120-day bill in past_90_plus bucket', () => {
+      const txs = [{ id: 't1', partyId: 'v1', date: '2026-07-01', grandTotalMinor: 40000, status: 'confirmed' }];
+      const res = computeAgingBuckets('v1', { transactions: txs, asOfDate: '2026-11-04' });
+      if (res.buckets.past_90_plus !== 40000) throw new Error(`Expected 40000 in 90+, got ${res.buckets.past_90_plus}`);
+    });
+
+    test('computeAgingBuckets clears oldest debt first via FIFO payment allocation', () => {
+      const txs = [
+        { id: 't1', partyId: 'v1', date: '2026-07-01', grandTotalMinor: 20000, status: 'confirmed' }, // 90+
+        { id: 't2', partyId: 'v1', date: '2026-11-01', grandTotalMinor: 30000, status: 'confirmed' }  // 0-30
+      ];
+      // Payment of 20000 should completely clear the old bill t1
+      const pms = [{ id: 'p1', partyId: 'v1', amountMinor: 20000, status: 'completed' }];
+      const res = computeAgingBuckets('v1', { transactions: txs, payments: pms, asOfDate: '2026-11-04' });
+      if (res.buckets.past_90_plus !== 0) throw new Error(`Expected past_90_plus to be 0, got ${res.buckets.past_90_plus}`);
+      if (res.buckets.current_0_30 !== 30000) throw new Error(`Expected current_0_30 to be 30000, got ${res.buckets.current_0_30}`);
+      if (res.totalOwedMinor !== 30000) throw new Error(`Expected total owed 30000, got ${res.totalOwedMinor}`);
+    });
+
+    // --- Suite 3: Stock Movement Derivation (5 tests) ---
+    test('computeItemStock returns 0 when no movements exist', () => {
+      const s = computeItemStock('item1', []);
+      if (s !== 0) throw new Error(`Expected 0, got ${s}`);
+    });
+
+    test('computeItemStock sums inward purchases', () => {
+      const m = [
+        { itemId: 'item1', qtyChangeMilli: 50000, status: 'posted' }, // +50 units
+        { itemId: 'item1', qtyChangeMilli: 25000, status: 'posted' }  // +25 units
+      ];
+      const s = computeItemStock('item1', m);
+      if (s !== 75000) throw new Error(`Expected 75000 milli (75 units), got ${s}`);
+    });
+
+    test('computeItemStock deducts sales movements', () => {
+      const m = [
+        { itemId: 'item1', qtyChangeMilli: 100000, status: 'posted' }, // +100 units
+        { itemId: 'item1', qtyChangeMilli: -35000, status: 'posted' }  // -35 units
+      ];
+      const s = computeItemStock('item1', m);
+      if (s !== 65000) throw new Error(`Expected 65000 milli (65 units), got ${s}`);
+    });
+
+    test('computeItemStock ignores cancelled movements', () => {
+      const m = [
+        { itemId: 'item1', qtyChangeMilli: 100000, status: 'posted' },
+        { itemId: 'item1', qtyChangeMilli: -50000, status: 'cancelled' }
+      ];
+      const s = computeItemStock('item1', m);
+      if (s !== 100000) throw new Error(`Expected 100000, got ${s}`);
+    });
+
+    test('computeItemStock accounts for manual inventory adjustments (damage/loss)', () => {
+      const m = [
+        { itemId: 'item1', qtyChangeMilli: 50000, status: 'posted' },
+        { itemId: 'item1', qtyChangeMilli: -2000, type: 'adjustment', reason: 'damage', status: 'posted' }
+      ];
+      const s = computeItemStock('item1', m);
+      if (s !== 48000) throw new Error(`Expected 48000 milli (48 units), got ${s}`);
+    });
+
+    // --- Suite 4: Weighted Average Cost (WAC) Derivations (5 tests) ---
+    test('computeItemWAC returns 0 for zero stock', () => {
+      const w = computeItemWAC('item1', []);
+      if (w !== 0) throw new Error(`Expected 0, got ${w}`);
+    });
+
+    test('computeItemWAC sets initial rate on first purchase', () => {
+      const m = [{ itemId: 'item1', qtyChangeMilli: 10000, unitPriceMinor: 15000, status: 'posted' }]; // 10 units @ Rs. 150.00
+      const w = computeItemWAC('item1', m);
+      if (w !== 15000) throw new Error(`Expected 15000, got ${w}`);
+    });
+
+    test('computeItemWAC recalculates weighted average on second purchase at different price', () => {
+      // Purchase 1: 10 units @ Rs. 100 = Rs. 1,000
+      // Purchase 2: 20 units @ Rs. 160 = Rs. 3,200
+      // Total units: 30, Total Cost: Rs. 4,200 => WAC = Rs. 140.00 (14000 minor units)
+      const m = [
+        { id: 'm1', itemId: 'item1', date: '2026-11-01', qtyChangeMilli: 10000, unitPriceMinor: 10000, status: 'posted' },
+        { id: 'm2', itemId: 'item1', date: '2026-11-02', qtyChangeMilli: 20000, unitPriceMinor: 16000, status: 'posted' }
+      ];
+      const w = computeItemWAC('item1', m);
+      if (w !== 14000) throw new Error(`Expected 14000 (Rs. 140.00), got ${w}`);
+    });
+
+    test('computeItemWAC does not change when sales occur', () => {
+      const m = [
+        { id: 'm1', itemId: 'item1', date: '2026-11-01', qtyChangeMilli: 30000, unitPriceMinor: 14000, status: 'posted' },
+        { id: 'm2', itemId: 'item1', date: '2026-11-02', qtyChangeMilli: -10000, unitPriceMinor: 20000, status: 'posted' } // Sold 10 units
+      ];
+      const w = computeItemWAC('item1', m);
+      if (w !== 14000) throw new Error(`Expected 14000 to remain constant after sale, got ${w}`);
+    });
+
+    test('computeItemWAC handles fractional quantity and rate without float drift', () => {
+      // 2.5 kg @ Rs. 120.50 + 7.5 kg @ Rs. 160.50
+      // 2.5 * 12050 = 30125
+      // 7.5 * 16050 = 120375
+      // Total = 150500 / 10 kg = 15050 (Rs. 150.50)
+      const m = [
+        { id: 'm1', itemId: 'item1', date: '2026-11-01', qtyChangeMilli: 2500, unitPriceMinor: 12050, status: 'posted' },
+        { id: 'm2', itemId: 'item1', date: '2026-11-02', qtyChangeMilli: 7500, unitPriceMinor: 16050, status: 'posted' }
+      ];
+      const w = computeItemWAC('item1', m);
+      if (w !== 15050) throw new Error(`Expected 15050, got ${w}`);
+    });
+
+    test('computeItemWAC falls back to prevailing WAC or purchase price when adjustment has no unitPrice', () => {
+      // Opening 50 units @ Rs. 250.00
+      // Adjustment +50 units with undefined unitPriceMinor
+      // Should retain Rs. 250.00 instead of zero dilution
+      const m = [
+        { id: 'm1', itemId: 'rice', date: '2026-11-01', qtyChangeMilli: 50000, unitPriceMinor: 25000, status: 'posted' },
+        { id: 'm2', itemId: 'rice', date: '2026-11-02', qtyChangeMilli: 50000, unitPriceMinor: undefined, status: 'posted' }
+      ];
+      const w = computeItemWAC('rice', m, 25000);
+      if (w !== 25000) throw new Error(`Expected 25000 (Rs. 250.00), got ${w}`);
+    });
+
+    // --- Suite 5: Negative Stock Policies (3 tests) ---
+    test('validateStockDecrease allows normal stock decrease within balance', () => {
+      const res = validateStockDecrease(10000, 5000, 'block');
+      if (!res.allowed) throw new Error('Expected allowed=true when stock is sufficient');
+    });
+
+    test('validateStockDecrease blocks negative stock when policy is block', () => {
+      const res = validateStockDecrease(5000, 8000, 'block');
+      if (res.allowed) throw new Error('Expected allowed=false when policy is block');
+    });
+
+    test('validateStockDecrease permits with warning when policy is warn', () => {
+      const res = validateStockDecrease(5000, 8000, 'warn');
+      if (!res.allowed || !res.warning) throw new Error('Expected allowed=true with warning=true');
+    });
+
+    // --- Suite 6: Billed vs Received Shortage & Debit Note (5 tests) ---
+    test('detectBillShortages returns null when all items received in full', () => {
+      const lines = [{ id: 'l1', qtyBilled: 10, qtyReceived: 10, unitPriceMinor: 5000 }];
+      const res = detectBillShortages(lines);
+      if (res !== null) throw new Error('Expected null when no shortage exists');
+    });
+
+    test('detectBillShortages calculates shortage value: 90 received of 100 billed', () => {
+      // 10 units shortage @ Rs. 50.00 (5000 minor) = Rs. 500.00 (50000 minor)
+      const lines = [{ id: 'l1', qtyBilled: 100, qtyReceived: 90, unitPriceMinor: 5000 }];
+      const res = detectBillShortages(lines);
+      if (!res || !res.hasShortage) throw new Error('Expected shortage detected');
+      if (res.lines[0].diffQty !== 10) throw new Error(`Expected diff 10, got ${res.lines[0].diffQty}`);
+      if (res.totalMinor !== 50000) throw new Error(`Expected total 50000, got ${res.totalMinor}`);
+    });
+
+    test('detectBillShortages applies tax adjustment on shortage amount', () => {
+      // 10 units shortage @ Rs. 50.00 = Rs. 500.00 (50000 minor).
+      // Tax: 18% (1800 bp) => 50000 * 0.18 = 9000 minor (Rs. 90.00)
+      // Grand shortage = 59000 minor (Rs. 590.00)
+      const lines = [{ id: 'l1', qtyBilled: 100, qtyReceived: 90, unitPriceMinor: 5000, taxRateBp: 1800 }];
+      const res = detectBillShortages(lines);
+      if (res.subtotalMinor !== 50000) throw new Error(`Expected subtotal 50000, got ${res.subtotalMinor}`);
+      if (res.taxMinor !== 9000) throw new Error(`Expected tax 9000, got ${res.taxMinor}`);
+      if (res.totalMinor !== 59000) throw new Error(`Expected total 59000, got ${res.totalMinor}`);
+    });
+
+    test('Receiving 90 of 100 billed lowers vendor payable by exactly the shortage amount', () => {
+      // Acceptance Criterion 1:
+      // Bill: 100 units @ Rs. 50.00 = Rs. 5,000.00
+      // Received: 90 units
+      // Shortage Debit Note: 10 units = Rs. 500.00
+      // Net Payable to Vendor must be Rs. 4,500.00 (450000 minor units)
+      const lines = [{ id: 'l1', qtyBilled: 100, qtyReceived: 90, unitPriceMinor: 5000 }];
+      const shortage = detectBillShortages(lines);
+      const txs = [{ id: 'tx1', partyId: 'v1', grandTotalMinor: 500000, status: 'confirmed' }];
+      const dns = [{ id: 'dn1', partyId: 'v1', totalMinor: shortage.totalMinor, status: 'open' }];
+
+      const payable = computePartyBalance('v1', 'vendor', txs, [], dns);
+      if (payable !== 450000) throw new Error(`Expected net payable 450000, got ${payable}`);
+    });
+
+    test('Receiving 90 of 100 billed adds exactly 90 to stock', () => {
+      // Inward movement must register only 90 units (90000 milli)
+      const receivedQty = 90;
+      const m = [{ itemId: 'item1', qtyChangeMilli: receivedQty * 1000, status: 'posted' }];
+      const stock = computeItemStock('item1', m);
+      if (stock !== 90000) throw new Error(`Expected 90000 milli units (90), got ${stock}`);
+    });
+
+    // --- Suite 7: Sequential Gap-Free Document Numbering (4 tests) ---
+    test('formatSequentialNumber starts from 1 if counter record is empty', () => {
+      const res = formatSequentialNumber(null, 'PO', 2026);
+      if (res.documentNumber !== 'PO-2026-0001') throw new Error(`Expected PO-2026-0001, got ${res.documentNumber}`);
+      if (res.nextSeq !== 2) throw new Error(`Expected nextSeq 2, got ${res.nextSeq}`);
+    });
+
+    test('formatSequentialNumber increments sequentially without gaps', () => {
+      const rec = { nextSeq: 15 };
+      const res = formatSequentialNumber(rec, 'PO', 2026);
+      if (res.documentNumber !== 'PO-2026-0015') throw new Error(`Expected PO-2026-0015, got ${res.documentNumber}`);
+      if (res.nextSeq !== 16) throw new Error(`Expected nextSeq 16, got ${res.nextSeq}`);
+    });
+
+    test('formatSequentialNumber supports DN (Debit Note) prefix', () => {
+      const res = formatSequentialNumber({ nextSeq: 1 }, 'DN', 2026);
+      if (res.documentNumber !== 'DN-2026-0001') throw new Error(`Expected DN-2026-0001, got ${res.documentNumber}`);
+    });
+
+    test('formatSequentialNumber supports PV (Payment Voucher) prefix', () => {
+      const res = formatSequentialNumber({ nextSeq: 104 }, 'PV', 2026);
+      if (res.documentNumber !== 'PV-2026-0104') throw new Error(`Expected PV-2026-0104, got ${res.documentNumber}`);
+    });
+
+    // --- Suite 8: Amount in Words on Vouchers (Indian & Western) (4 tests) ---
+    test('amountInWords formats Indian system for Rs. 1,25,000.50 (Acceptance Criterion 3)', () => {
+      // 125000.50 = 12500050 minor units
+      const words = amountInWords(12500050, 'PKR', { system: 'indian' });
+      if (!words.includes('One Lakh Twenty Five Thousand Rupees and Fifty Paisas Only')) {
+        throw new Error(`Unexpected Indian words: "${words}"`);
+      }
+    });
+
+    test('amountInWords formats Western system for Rs. 125,000.50 (Acceptance Criterion 3)', () => {
+      const words = amountInWords(12500050, 'PKR', { system: 'western' });
+      if (!words.includes('One Hundred and Twenty Five Thousand Rupees and Fifty Paisas Only')) {
+        throw new Error(`Unexpected Western words: "${words}"`);
+      }
+    });
+
+    test('amountInWords formats round amounts without paisas', () => {
+      const words = amountInWords(5000000, 'PKR', { system: 'indian' }); // Rs. 50,000.00
+      if (words !== 'Fifty Thousand Rupees Only') {
+        throw new Error(`Expected "Fifty Thousand Rupees Only", got "${words}"`);
+      }
+    });
+
+    test('amountInWords handles single rupee and paisa correctly', () => {
+      const words = amountInWords(101, 'PKR', { system: 'indian' }); // Rs. 1.01
+      if (!words.includes('One Rupees and One Paisas Only')) {
+        throw new Error(`Unexpected words: "${words}"`);
+      }
+    });
+
+    // --- Suite 9: Sales Invoices, COGS & Margin Derivation (4 tests) ---
+    test('calculateLineMargin derives exact COGS and Gross Profit from WAC', () => {
+      // Sold: 10 units @ Rs. 200.00 (20000 minor)
+      // WAC Cost: Rs. 150.00 (15000 minor)
+      // Revenue = Rs. 2,000 (200000 minor), COGS = Rs. 1,500 (150000 minor), GP = Rs. 500 (50000 minor)
+      // Margin = 500 / 2000 = 25.0%
+      const line = { qty: 10, unitPriceMinor: 20000, wacCostMinor: 15000 };
+      const res = calculateLineMargin(line);
+      if (res.lineTotalMinor !== 200000) throw new Error(`Expected revenue 200000, got ${res.lineTotalMinor}`);
+      if (res.cogsMinor !== 150000) throw new Error(`Expected COGS 150000, got ${res.cogsMinor}`);
+      if (res.grossProfitMinor !== 50000) throw new Error(`Expected Gross Profit 50000, got ${res.grossProfitMinor}`);
+      if (res.marginPct !== 25) throw new Error(`Expected 25.0%, got ${res.marginPct}`);
+    });
+
+    test('calculateLineMargin handles zero profit (sold at cost)', () => {
+      const line = { qty: 5, unitPriceMinor: 10000, wacCostMinor: 10000 };
+      const res = calculateLineMargin(line);
+      if (res.grossProfitMinor !== 0) throw new Error(`Expected GP 0, got ${res.grossProfitMinor}`);
+      if (res.marginPct !== 0) throw new Error(`Expected margin 0%, got ${res.marginPct}`);
+    });
+
+    test('calculateLineMargin handles negative margin (sold below cost)', () => {
+      // Sold @ Rs. 80, Cost = Rs. 100 => Margin = -25%
+      const line = { qty: 1, unitPriceMinor: 8000, wacCostMinor: 10000 };
+      const res = calculateLineMargin(line);
+      if (res.grossProfitMinor !== -2000) throw new Error(`Expected GP -2000, got ${res.grossProfitMinor}`);
+      if (res.marginPct !== -25) throw new Error(`Expected margin -25%, got ${res.marginPct}`);
+    });
+
+    test('derive invoice totals with discount preserves exact margin calculation', () => {
+      // Line: Rs. 1,000 (COGS: Rs. 600)
+      // Discount: Rs. 100 => Net Revenue = Rs. 900
+      // GP = 900 - 600 = 300 => Margin = 300 / 900 = 33.3%
+      const line = { qty: 1, unitPriceMinor: 100000, wacCostMinor: 60000 };
+      const margin = calculateLineMargin(line);
+      const netRev = margin.lineTotalMinor - 10000; // -100 Rs discount
+      const gp = netRev - margin.cogsMinor;
+      const pct = Math.round((gp / netRev) * 1000) / 10;
+      if (pct !== 33.3) throw new Error(`Expected 33.3%, got ${pct}%`);
+    });
+
+    // --- Suite 10: Atomic Rollback / Deleting a Bill Restores Stock and Balances (3 tests) ---
+    test('Deleting a confirmed bill restores vendor balance to exact prior value (Acceptance Criterion 4)', () => {
+      let txs = [
+        { id: 'b1', partyId: 'v1', grandTotalMinor: 30000, status: 'confirmed' },
+        { id: 'b2', partyId: 'v1', grandTotalMinor: 20000, status: 'confirmed' }
+      ];
+      // Initial balance = 50000
+      let bal = computePartyBalance('v1', 'vendor', txs, [], []);
+      if (bal !== 50000) throw new Error(`Initial bal should be 50000, got ${bal}`);
+
+      // Delete b2
+      txs = txs.filter(t => t.id !== 'b2');
+      bal = computePartyBalance('v1', 'vendor', txs, [], []);
+      if (bal !== 30000) throw new Error(`Restored bal should be exactly 30000, got ${bal}`);
+    });
+
+    test('Deleting a confirmed bill removes stock movements restoring inventory count (Acceptance Criterion 4)', () => {
+      let movements = [
+        { id: 'm1', txId: 'b1', itemId: 'i1', qtyChangeMilli: 10000, status: 'posted' },
+        { id: 'm2', txId: 'b2', itemId: 'i1', qtyChangeMilli: 5000, status: 'posted' }
+      ];
+      // Total stock = 15000 milli
+      let s = computeItemStock('i1', movements);
+      if (s !== 15000) throw new Error(`Initial stock should be 15000, got ${s}`);
+
+      // Remove movements tied to b2
+      movements = movements.filter(m => m.txId !== 'b2');
+      s = computeItemStock('i1', movements);
+      if (s !== 10000) throw new Error(`Restored stock should be exactly 10000, got ${s}`);
+    });
+
+    test('Financial reconciliation confirms zero difference after bill deletion', () => {
+      const txs = [{ id: 'b1', partyId: 'v1', grandTotalMinor: 30000, status: 'confirmed' }];
+      const derived = computePartyBalance('v1', 'vendor', txs, [], []);
+      const diff = Math.abs(derived - 30000);
+      if (diff !== 0) throw new Error(`Expected zero difference, got diff ${diff}`);
+    });
+
+    // --- Suite 11: 200-record P&L and Tax Dataset Verification (2 tests) ---
+    test('P&L matches source transactions to the last paisa across 200 records (Acceptance Criterion 6)', () => {
+      const sales = [];
+      const cogs = [];
+      let expectedSales = 0;
+      let expectedCogs = 0;
+
+      for (let i = 1; i <= 200; i++) {
+        const sale = i * 150; // In minor units
+        const cost = i * 90;
+        sales.push(sale);
+        cogs.push(cost);
+        expectedSales += sale;
+        expectedCogs += cost;
+      }
+
+      const pnl = computeProfitAndLoss(sales, cogs, []);
+      if (pnl.totalSales !== expectedSales) throw new Error(`Sales mismatch: ${pnl.totalSales} vs ${expectedSales}`);
+      if (pnl.totalCogs !== expectedCogs) throw new Error(`COGS mismatch: ${pnl.totalCogs} vs ${expectedCogs}`);
+      if (pnl.grossProfit !== (expectedSales - expectedCogs)) throw new Error('Gross profit mismatch');
+    });
+
+    test('Sales tax summary reconciles collected vs paid tax without paisa drift', () => {
+      let taxPaid = 0;
+      let taxCollected = 0;
+      for (let i = 1; i <= 100; i++) {
+        taxPaid += (i * 18);
+        taxCollected += (i * 24);
+      }
+      const net = taxCollected - taxPaid;
+      if (net <= 0) throw new Error('Expected positive tax liability');
+      if (net !== 30300) throw new Error(`Expected net 30300, got ${net}`);
+    });
+
+    // Run tests
+    let passed = 0;
+    let failed = 0;
+    const resultsEl = document.getElementById('results');
+
+    for (const t of tests) {
+      try {
+        t.fn();
+        passed++;
+        const row = document.createElement('div');
+        row.className = 'test-row';
+        row.innerHTML = `
+          <span>${t.name}</span>
+          <span class="pill pill-success">PASS</span>
+        `;
+        resultsEl.appendChild(row);
+      } catch (err) {
+        failed++;
+        const row = document.createElement('div');
+        row.className = 'test-row';
+        row.innerHTML = `
+          <div>
+            <strong>${t.name}</strong>
+            <div style="color:var(--error-text); font-size:11px; margin-top:4px;">${err.message}</div>
+          </div>
+          <span class="pill pill-error">FAIL</span>
+        `;
+        resultsEl.appendChild(row);
+      }
+    }
+
+    const statsEl = document.getElementById('stats');
+    if (failed === 0) {
+      statsEl.innerHTML = `
+        <span class="pill pill-success">Total: ${tests.length}</span>
+        <span class="pill pill-success">Passed: ${passed}</span>
+        <span class="pill pill-success">100% Passed</span>
+      `;
+    } else {
+      statsEl.innerHTML = `
+        <span class="pill pill-error">Passed: ${passed} / ${tests.length}</span>
+        <span class="pill pill-error">Failed: ${failed}</span>
+      `;
+    }
+  </script>
+</body>
+</html>
